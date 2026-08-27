@@ -1,0 +1,31 @@
+# Интерфейс и ключи AmneziaWG
+WG_INTERFACE=amnw0
+PRIVATE_KEY="replace-me"
+ADDRESS=10.0.0.2/32
+DNS=1.1.1.1
+PUBLIC_KEY="replace-me"
+PRESHARED_KEY="replace-me"
+ENDPOINT=198.51.100.10:51820
+PERSISTENTKEEPALIVE=25
+WG_MTU=1340
+
+# Параметры обфускации AmneziaWG
+Jc=4
+Jmin=40
+Jmax=70
+S1=0
+S2=0
+S3=0
+S4=0
+H1=1
+H2=2
+H3=3
+H4=4
+
+# Upstream-прокси в формате host:port:user:password
+PROXY_STRING="203.0.113.10:3128:user:replace-me"
+LOCAL_HTTP_PORT=8081
+LOCAL_SOCKS_PORT=8080
+
+# HTTPS-адреса списков IPv4 CIDR, разделённые пробелами. Можно оставить пустым.
+IPLIST_URLS=""

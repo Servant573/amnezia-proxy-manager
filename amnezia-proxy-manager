@@ -1,12 +1,16 @@
 #!/bin/bash
 set -euo pipefail
 
+VERSION="0.1.0"
+
 # ====================== НАСТРОЙКИ ======================
-CONFIG_FILE="${HOME}/.amnezia-proxy.conf"
-RUNTIME_DIR="${HOME}/.local-proxy"
+CONFIG_FILE="${AMNEZIA_PROXY_CONFIG:-${HOME}/.amnezia-proxy.conf}"
+RUNTIME_DIR="${AMNEZIA_PROXY_RUNTIME_DIR:-${HOME}/.local-proxy}"
 PROXY_CFG="${RUNTIME_DIR}/3proxy.cfg"
 LOG_FILE="${RUNTIME_DIR}/manager.log"
 PID_FILE="${RUNTIME_DIR}/3proxy.pid"
+MANAGER_PID_FILE="${RUNTIME_DIR}/manager.pid"
+LOCK_FILE="${RUNTIME_DIR}/manager.lock"
 ALLOWED_IPS_CACHE="${RUNTIME_DIR}/allowed_ips.txt"
 
 # WG_TMP_CONF будет задан позже, после загрузки конфига
@@ -19,8 +23,19 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 umask 077
-mkdir -p "$RUNTIME_DIR"
-chmod 700 "$RUNTIME_DIR" 2>/dev/null || true
+
+CONFIG_LOADED=0
+CLEANUP_DONE=0
+LOCK_FD=""
+
+init_runtime() {
+    mkdir -p "$RUNTIME_DIR"
+    chmod 700 "$RUNTIME_DIR" 2>/dev/null || true
+}
+
+colors_enabled() {
+    [[ -t 1 && -z "${NO_COLOR:-}" ]]
+}
 
 log() {
     local level="$1"
@@ -28,13 +43,21 @@ log() {
     local msg="$*"
     local ts
     ts=$(date '+%Y-%m-%d %H:%M:%S')
+    local color="" padding=""
     case "$level" in
-        INFO)  echo -e "${ts} ${BLUE}[INFO]${NC}  $msg" | tee -a "$LOG_FILE" ;;
-        OK)    echo -e "${ts} ${GREEN}[OK]${NC}    $msg" | tee -a "$LOG_FILE" ;;
-        WARN)  echo -e "${ts} ${YELLOW}[WARN]${NC}  $msg" | tee -a "$LOG_FILE" ;;
-        ERR)   echo -e "${ts} ${RED}[ERR]${NC}   $msg" | tee -a "$LOG_FILE" ;;
-        *)     echo -e "${ts} $msg" | tee -a "$LOG_FILE" ;;
+        INFO) color="$BLUE"; padding="  " ;;
+        OK)   color="$GREEN"; padding="    " ;;
+        WARN) color="$YELLOW"; padding="  " ;;
+        ERR)  color="$RED"; padding="   " ;;
     esac
+
+    # Лог-файл всегда остаётся обычным текстом без ANSI-последовательностей.
+    printf '%s [%s]%s%s\n' "$ts" "$level" "$padding" "$msg" >> "$LOG_FILE"
+    if colors_enabled && [[ -n "$color" ]]; then
+        printf '%s %b[%s]%b%s%s\n' "$ts" "$color" "$level" "$NC" "$padding" "$msg"
+    else
+        printf '%s [%s]%s%s\n' "$ts" "$level" "$padding" "$msg"
+    fi
 }
 
 die() {
@@ -63,20 +86,6 @@ strip_quotes() {
     printf '%s' "$s"
 }
 
-# URL-энкодинг для безопасной подстановки логина/пароля в URL прокси
-urlencode() {
-    local s="$1" out="" c
-    local i
-    for (( i=0; i<${#s}; i++ )); do
-        c="${s:$i:1}"
-        case "$c" in
-            [a-zA-Z0-9.~_-]) out+="$c" ;;
-            *) printf -v c '%%%02X' "'$c"; out+="$c" ;;
-        esac
-    done
-    printf '%s' "$out"
-}
-
 # ====================== ПАРСИНГ КОНФИГА ======================
 load_config() {
     [[ -f "$CONFIG_FILE" ]] || die "Конфиг не найден: $CONFIG_FILE"
@@ -99,7 +108,7 @@ load_config() {
         case "$key" in
             WG_INTERFACE|PRIVATE_KEY|ADDRESS|DNS|PUBLIC_KEY|ENDPOINT|PERSISTENTKEEPALIVE|\
             Jc|Jmin|Jmax|S1|S2|S3|S4|H1|H2|H3|H4|I1|I2|I3|I4|I5|PRESHARED_KEY|\
-            PROXY_STRING|LOCAL_HTTP_PORT|LOCAL_SOCKS_PORT|IPLIST_URLS)
+            PROXY_STRING|LOCAL_HTTP_PORT|LOCAL_SOCKS_PORT|IPLIST_URLS|WG_MTU)
                 printf -v "$key" '%s' "$value"
                 ;;
         esac
@@ -147,15 +156,53 @@ load_config() {
         || die "Не удалось распарсить PROXY_STRING. Ожидается host:port:user:pass"
 
     WG_TMP_CONF="${RUNTIME_DIR}/${WG_INTERFACE}.conf"
+    CONFIG_LOADED=1
     log INFO "Конфиг загружен. Прокси: $PROXY_HOST:$PROXY_PORT"
 }
 
 # ====================== ПРОВЕРКИ ======================
-check_deps() {
+check_tunnel_deps() {
     command -v awg-quick >/dev/null 2>&1 || die "awg-quick не найден. Установи amneziawg-tools"
+    command -v ip       >/dev/null 2>&1 || die "iproute2 не найден"
+    command -v sudo     >/dev/null 2>&1 || die "sudo не найден"
+}
+
+check_deps() {
+    check_tunnel_deps
     command -v 3proxy   >/dev/null 2>&1 || die "3proxy не найден"
     command -v curl     >/dev/null 2>&1 || die "curl не найден"
-    command -v ip       >/dev/null 2>&1 || die "iproute2 не найден"
+    command -v flock    >/dev/null 2>&1 || die "flock не найден (обычно входит в util-linux)"
+}
+
+read_pid() {
+    local file="$1" pid
+    [[ -r "$file" ]] || return 1
+    read -r pid < "$file"
+    [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+    printf '%s' "$pid"
+}
+
+process_cmdline_contains() {
+    local pid="$1" expected="$2" cmdline
+    [[ -r "/proc/${pid}/cmdline" ]] || return 1
+    cmdline=$(tr '\0' ' ' < "/proc/${pid}/cmdline")
+    [[ "$cmdline" == *"$expected"* ]]
+}
+
+acquire_lock() {
+    command -v flock >/dev/null 2>&1 || die "flock не найден (обычно входит в util-linux)"
+    exec {LOCK_FD}>"$LOCK_FILE"
+    if ! flock -n "$LOCK_FD"; then
+        die "Другая операция start/stop уже выполняется"
+    fi
+}
+
+release_lock() {
+    if [[ -n "${LOCK_FD:-}" ]]; then
+        flock -u "$LOCK_FD" 2>/dev/null || true
+        exec {LOCK_FD}>&-
+        LOCK_FD=""
+    fi
 }
 
 is_tunnel_up() {
@@ -163,7 +210,18 @@ is_tunnel_up() {
 }
 
 is_proxy_running() {
-    [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null
+    local pid
+    pid=$(read_pid "$PID_FILE") || return 1
+    kill -0 "$pid" 2>/dev/null \
+        && process_cmdline_contains "$pid" "3proxy" \
+        && process_cmdline_contains "$pid" "$PROXY_CFG"
+}
+
+is_manager_running() {
+    local pid
+    pid=$(read_pid "$MANAGER_PID_FILE") || return 1
+    kill -0 "$pid" 2>/dev/null \
+        && process_cmdline_contains "$pid" "amnezia-proxy-manager"
 }
 
 build_allowed_ips() {
@@ -221,7 +279,9 @@ generate_wg_config() {
 PrivateKey = ${PRIVATE_KEY}
 Address = ${ADDRESS}
 MTU = ${WG_MTU}
-
+EOF
+        [[ -n "$DNS" ]] && echo "DNS = ${DNS}"
+        cat <<EOF
 Jc = ${Jc}
 Jmin = ${Jmin}
 Jmax = ${Jmax}
@@ -279,9 +339,10 @@ EOF
 
 start_proxy() {
     if is_proxy_running; then
-        log WARN "3proxy уже запущен (PID $(cat "$PID_FILE"))"
+        log WARN "3proxy уже запущен (PID $(read_pid "$PID_FILE"))"
         return 0
     fi
+    rm -f "$PID_FILE"
 
     generate_proxy_config
     log INFO "Запускаю 3proxy..."
@@ -298,11 +359,14 @@ start_proxy() {
 
 stop_proxy() {
     if is_proxy_running; then
-        kill "$(cat "$PID_FILE")" 2>/dev/null || true
+        local pid
+        pid=$(read_pid "$PID_FILE")
+        kill "$pid" 2>/dev/null || true
         rm -f "$PID_FILE"
         log OK "3proxy остановлен"
     else
-        pkill -f "3proxy.*${PROXY_CFG}" 2>/dev/null || true
+        # Не используем pkill по шаблону: устаревший PID-файл не должен
+        # приводить к завершению постороннего процесса.
         rm -f "$PID_FILE"
     fi
 }
@@ -310,7 +374,7 @@ stop_proxy() {
 # ====================== ТУННЕЛЬ ======================
 start_tunnel() {
     # Если интерфейс уже существует — сначала гасим его
-    if is_tunnel_up || ip link show "$WG_INTERFACE" &>/dev/null; then
+    if is_tunnel_up; then
         log WARN "Интерфейс $WG_INTERFACE уже существует — останавливаю..."
         sudo awg-quick down "$WG_TMP_CONF" 2>/dev/null || true
         sudo awg-quick down "$WG_INTERFACE" 2>/dev/null || true
@@ -349,66 +413,137 @@ stop_tunnel() {
 # ====================== ОСНОВНЫЕ КОМАНДЫ ======================
 do_start() {
     log INFO "========== ЗАПУСК =========="
-    check_deps
     load_config
+    check_deps
     build_allowed_ips
     start_tunnel
     start_proxy
 
     log OK "Система готова"
     echo
-    echo -e "${GREEN}Используй:${NC}"
+    if colors_enabled; then
+        printf '%bИспользуй:%b\n' "$GREEN" "$NC"
+    else
+        echo "Используй:"
+    fi
     echo "  export HTTP_PROXY=http://127.0.0.1:${LOCAL_HTTP_PORT}"
     echo "  export HTTPS_PROXY=http://127.0.0.1:${LOCAL_HTTP_PORT}"
     echo "  export ALL_PROXY=socks5h://127.0.0.1:${LOCAL_SOCKS_PORT}"
     echo
 }
 
-do_stop() {
+stop_components() {
     log INFO "========== ОСТАНОВКА =========="
     stop_proxy
     stop_tunnel
     log OK "Всё остановлено"
 }
 
+do_stop() {
+    load_config
+    check_tunnel_deps
+    acquire_lock
+
+    local manager_pid=""
+    if is_manager_running; then
+        manager_pid=$(read_pid "$MANAGER_PID_FILE")
+    fi
+
+    if [[ -n "$manager_pid" && "$manager_pid" != "$$" ]]; then
+        log INFO "Останавливаю менеджер (PID $manager_pid)..."
+        kill -TERM "$manager_pid" 2>/dev/null || true
+        local attempt
+        for (( attempt=0; attempt<50; attempt++ )); do
+            kill -0 "$manager_pid" 2>/dev/null || break
+            sleep 0.1
+        done
+        if kill -0 "$manager_pid" 2>/dev/null; then
+            release_lock
+            die "Менеджер не завершился за 5 секунд"
+        fi
+    fi
+
+    rm -f "$MANAGER_PID_FILE"
+    # Повторная остановка безопасна и подчищает состояние после аварий.
+    stop_components
+    release_lock
+}
+
 do_status() {
-    load_config 2>/dev/null || true
+    if [[ ! -f "$CONFIG_FILE" ]]; then
+        echo "Конфиг: НЕ НАЙДЕН ($CONFIG_FILE)"
+        if is_manager_running; then
+            echo "Менеджер: RUNNING (PID $(read_pid "$MANAGER_PID_FILE"))"
+        else
+            echo "Менеджер: STOPPED"
+        fi
+        if is_proxy_running; then
+            echo "3proxy: RUNNING (PID $(read_pid "$PID_FILE"))"
+        else
+            echo "3proxy: STOPPED"
+        fi
+        return 1
+    fi
+
+    load_config
 
     echo "=== Статус ==="
+    if is_manager_running; then
+        echo "Менеджер: RUNNING (PID $(read_pid "$MANAGER_PID_FILE"))"
+    else
+        echo "Менеджер: STOPPED"
+    fi
+
     if is_tunnel_up; then
-        echo -e "Туннель ($WG_INTERFACE): ${GREEN}UP${NC}"
+        if colors_enabled; then
+            printf 'Туннель (%s): %bUP%b\n' "$WG_INTERFACE" "$GREEN" "$NC"
+        else
+            echo "Туннель ($WG_INTERFACE): UP"
+        fi
         ip -br addr show "$WG_INTERFACE" 2>/dev/null || true
         echo -n "Маршрут к $PROXY_HOST: "
         ip route get "$PROXY_HOST" 2>/dev/null | head -1 || echo "не найден"
     else
-        echo -e "Туннель: ${RED}DOWN${NC}"
+        if colors_enabled; then
+            printf 'Туннель: %bDOWN%b\n' "$RED" "$NC"
+        else
+            echo "Туннель: DOWN"
+        fi
     fi
 
     echo
     if is_proxy_running; then
-        echo -e "3proxy: ${GREEN}RUNNING${NC} (PID $(cat "$PID_FILE"))"
+        if colors_enabled; then
+            printf '3proxy: %bRUNNING%b (PID %s)\n' "$GREEN" "$NC" "$(read_pid "$PID_FILE")"
+        else
+            echo "3proxy: RUNNING (PID $(read_pid "$PID_FILE"))"
+        fi
         echo -n "Проверка через локальный прокси: "
         if curl -s --max-time 6 -x "http://127.0.0.1:${LOCAL_HTTP_PORT:-8081}" https://api.ipify.org; then
             echo
         else
-            echo -e "${RED}не отвечает${NC}"
+            if colors_enabled; then
+                printf '%bне отвечает%b\n' "$RED" "$NC"
+            else
+                echo "не отвечает"
+            fi
         fi
     else
-        echo -e "3proxy: ${RED}STOPPED${NC}"
+        if colors_enabled; then
+            printf '3proxy: %bSTOPPED%b\n' "$RED" "$NC"
+        else
+            echo "3proxy: STOPPED"
+        fi
     fi
 }
 
 do_test() {
     load_config
+    command -v curl >/dev/null 2>&1 || die "curl не найден"
     log INFO "Тест доступности upstream-прокси..."
-    # Логин/пароль URL-энкодим и передаём через --proxy-user, а не
-    # склеиваем в URL строкой — иначе спецсимволы (@ : # %) в пароле
-    # ломают парсинг URL, а сырой пароль лишний раз не летает в -x.
-    local enc_user enc_pass
-    enc_user=$(urlencode "$PROXY_USER")
-    enc_pass=$(urlencode "$PROXY_PASS")
+    # Credentials передаём отдельной опцией, не помещая их в URL.
     if curl -s --max-time 8 -x "http://${PROXY_HOST}:${PROXY_PORT}" \
-            --proxy-user "${enc_user}:${enc_pass}" \
+            --proxy-user "${PROXY_USER}:${PROXY_PASS}" \
             https://api.ipify.org; then
         echo
         log OK "Upstream прокси отвечает"
@@ -417,48 +552,121 @@ do_test() {
     fi
 }
 
-do_restart() {
-    do_stop
-    sleep 1
-    do_start
-}
-
 # ====================== ОЧИСТКА ======================
 cleanup() {
     # Вызывается только при неожиданном завершении (Ctrl+C и т.д.)
     # При обычном stop мы сами всё останавливаем
-    if [[ "${CLEANUP_DONE:-}" == "1" ]]; then
+    if [[ "$CLEANUP_DONE" == "1" ]]; then
         return
     fi
     CLEANUP_DONE=1
-    log WARN "Получен сигнал завершения, останавливаю сервисы..."
-    stop_proxy
-    stop_tunnel
+    release_lock
+    if [[ "$CONFIG_LOADED" == "1" ]]; then
+        log WARN "Менеджер завершает работу, останавливаю сервисы..."
+        stop_components
+    fi
+    if [[ "$(read_pid "$MANAGER_PID_FILE" 2>/dev/null || true)" == "$$" ]]; then
+        rm -f "$MANAGER_PID_FILE"
+    fi
 }
 
 # ====================== MAIN ======================
-case "${1:-}" in
-    start)
-        trap cleanup EXIT INT TERM
-        do_start
-        # Держим скрипт живым, чтобы trap сработал при Ctrl+C
-        log INFO "Менеджер работает. Нажми Ctrl+C для остановки."
-        while true; do sleep 3600; done
-        ;;
-    stop)
-        do_stop
-        ;;
-    restart)
-        do_restart
-        ;;
-    status)
-        do_status
-        ;;
-    test)
-        do_test
-        ;;
-    *)
-        echo "Использование: $0 {start|stop|restart|status|test}"
-        exit 1
-        ;;
-esac
+usage() {
+    cat <<EOF
+amnezia-proxy-manager ${VERSION}
+
+Использование:
+  amnezia-proxy-manager <команда>
+
+Команды:
+  start       Запустить туннель и локальные прокси в foreground
+  stop        Остановить запущенный менеджер и сетевые компоненты
+  restart     Перезапустить менеджер
+  status      Показать состояние менеджера, туннеля и 3proxy
+  test        Проверить доступность upstream-прокси
+  help        Показать эту справку
+
+Переменные окружения:
+  AMNEZIA_PROXY_CONFIG       Путь к конфигу (по умолчанию ~/.amnezia-proxy.conf)
+  AMNEZIA_PROXY_RUNTIME_DIR  Каталог runtime-файлов (по умолчанию ~/.local-proxy)
+  NO_COLOR                   Отключить цветной вывод
+EOF
+}
+
+run_manager() {
+    acquire_lock
+    if is_manager_running; then
+        local pid
+        pid=$(read_pid "$MANAGER_PID_FILE")
+        release_lock
+        die "Менеджер уже запущен (PID $pid)"
+    fi
+
+    rm -f "$MANAGER_PID_FILE"
+    printf '%s\n' "$$" > "$MANAGER_PID_FILE"
+    trap cleanup EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+
+    do_start
+    release_lock
+    log INFO "Менеджер работает. Нажми Ctrl+C для остановки."
+    while true; do
+        # Bash откладывает trap, пока ожидает внешний процесс. Короткий sleep
+        # ограничивает задержку реакции на INT/TERM одной секундой.
+        sleep 1
+    done
+}
+
+main() {
+    local command="${1:-}"
+
+    case "$command" in
+        help|-h|--help)
+            usage
+            return 0
+            ;;
+        --version|-V)
+            echo "amnezia-proxy-manager ${VERSION}"
+            return 0
+            ;;
+        start|stop|restart|status|test)
+            init_runtime
+            ;;
+        "")
+            usage >&2
+            return 2
+            ;;
+        *)
+            echo "Неизвестная команда: $command" >&2
+            usage >&2
+            return 2
+            ;;
+    esac
+
+    case "$command" in
+        start)
+            run_manager
+            ;;
+        stop)
+            do_stop
+            ;;
+        restart)
+            do_stop
+            sleep 1
+            CLEANUP_DONE=0
+            CONFIG_LOADED=0
+            run_manager
+            ;;
+        status)
+            do_status
+            ;;
+        test)
+            do_test
+            ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi
