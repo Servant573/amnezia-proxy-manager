@@ -1,0 +1,464 @@
+#!/bin/bash
+set -euo pipefail
+
+# ====================== НАСТРОЙКИ ======================
+CONFIG_FILE="${HOME}/.amnezia-proxy.conf"
+RUNTIME_DIR="${HOME}/.local-proxy"
+PROXY_CFG="${RUNTIME_DIR}/3proxy.cfg"
+LOG_FILE="${RUNTIME_DIR}/manager.log"
+PID_FILE="${RUNTIME_DIR}/3proxy.pid"
+ALLOWED_IPS_CACHE="${RUNTIME_DIR}/allowed_ips.txt"
+
+# WG_TMP_CONF будет задан позже, после загрузки конфига
+WG_TMP_CONF=""
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+umask 077
+mkdir -p "$RUNTIME_DIR"
+chmod 700 "$RUNTIME_DIR" 2>/dev/null || true
+
+log() {
+    local level="$1"
+    shift
+    local msg="$*"
+    local ts
+    ts=$(date '+%Y-%m-%d %H:%M:%S')
+    case "$level" in
+        INFO)  echo -e "${ts} ${BLUE}[INFO]${NC}  $msg" | tee -a "$LOG_FILE" ;;
+        OK)    echo -e "${ts} ${GREEN}[OK]${NC}    $msg" | tee -a "$LOG_FILE" ;;
+        WARN)  echo -e "${ts} ${YELLOW}[WARN]${NC}  $msg" | tee -a "$LOG_FILE" ;;
+        ERR)   echo -e "${ts} ${RED}[ERR]${NC}   $msg" | tee -a "$LOG_FILE" ;;
+        *)     echo -e "${ts} $msg" | tee -a "$LOG_FILE" ;;
+    esac
+}
+
+die() {
+    log ERR "$*"
+    exit 1
+}
+
+# Обрезка пробелов без xargs (word-splitting в xargs небезопасен для
+# значений со спецсимволами/кавычками, например в паролях).
+trim() {
+    local s="$1"
+    s="${s#"${s%%[![:space:]]*}"}"
+    s="${s%"${s##*[![:space:]]}"}"
+    printf '%s' "$s"
+}
+
+# Снимает одну пару обрамляющих кавычек (одинарных или двойных), если
+# значение в конфиге записано как KEY="value" или KEY='value' — так
+# делает большинство .env-парсеров. Вызывать после trim().
+strip_quotes() {
+    local s="$1"
+    if [[ ( "$s" == \"*\" && "$s" == *\" && ${#s} -ge 2 ) || \
+          ( "$s" == \'*\' && "$s" == *\' && ${#s} -ge 2 ) ]]; then
+        s="${s:1:-1}"
+    fi
+    printf '%s' "$s"
+}
+
+# URL-энкодинг для безопасной подстановки логина/пароля в URL прокси
+urlencode() {
+    local s="$1" out="" c
+    local i
+    for (( i=0; i<${#s}; i++ )); do
+        c="${s:$i:1}"
+        case "$c" in
+            [a-zA-Z0-9.~_-]) out+="$c" ;;
+            *) printf -v c '%%%02X' "'$c"; out+="$c" ;;
+        esac
+    done
+    printf '%s' "$out"
+}
+
+# ====================== ПАРСИНГ КОНФИГА ======================
+load_config() {
+    [[ -f "$CONFIG_FILE" ]] || die "Конфиг не найден: $CONFIG_FILE"
+
+    # Права на конфиг с приватным ключом — предупреждаем, если слишком открыты
+    local cfg_perms
+    cfg_perms=$(stat -c '%a' "$CONFIG_FILE" 2>/dev/null || stat -f '%Lp' "$CONFIG_FILE" 2>/dev/null || echo "")
+    if [[ -n "$cfg_perms" && "$cfg_perms" != "600" && "$cfg_perms" != "400" ]]; then
+        log WARN "Конфиг $CONFIG_FILE имеет права $cfg_perms — рекомендуется chmod 600"
+    fi
+
+    # Безопасный парсинг key=value
+    while IFS='=' read -r key value || [[ -n "$key" ]]; do
+        # Пропускаем комментарии и пустые строки
+        [[ "$key" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "$key" ]] && continue
+        key=$(trim "$key")
+        value=$(strip_quotes "$(trim "$value")")
+
+        case "$key" in
+            WG_INTERFACE|PRIVATE_KEY|ADDRESS|DNS|PUBLIC_KEY|ENDPOINT|PERSISTENTKEEPALIVE|\
+            Jc|Jmin|Jmax|S1|S2|S3|S4|H1|H2|H3|H4|I1|I2|I3|I4|I5|PRESHARED_KEY|\
+            PROXY_STRING|LOCAL_HTTP_PORT|LOCAL_SOCKS_PORT|IPLIST_URLS)
+                printf -v "$key" '%s' "$value"
+                ;;
+        esac
+    done < "$CONFIG_FILE"
+
+    # Обязательные переменные (общие)
+    : "${WG_INTERFACE:?WG_INTERFACE не задан}"
+    : "${PRIVATE_KEY:?PRIVATE_KEY не задан}"
+    : "${ADDRESS:?ADDRESS не задан}"
+    : "${PUBLIC_KEY:?PUBLIC_KEY не задан}"
+    : "${ENDPOINT:?ENDPOINT не задан}"
+    : "${PROXY_STRING:?PROXY_STRING не задан}"
+    : "${IPLIST_URLS:=}"
+    : "${PRESHARED_KEY:?PRESHARED_KEY не задан}"
+    : "${LOCAL_HTTP_PORT:=8081}"
+    : "${LOCAL_SOCKS_PORT:=8080}"
+    : "${PERSISTENTKEEPALIVE:=25}"
+    : "${DNS:=}"
+
+    # AmneziaWG-специфичные параметры обфускации — даём разумные дефолты,
+    # если не заданы в конфиге, вместо падения с неинформативным
+    # "unbound variable" из-за set -u.
+    : "${Jc:=4}"
+    : "${Jmin:=40}"
+    : "${Jmax:=70}"
+    : "${S1:=0}"
+    : "${S2:=0}"
+    : "${S3:=0}"
+    : "${S4:=0}"
+    : "${H1:=1}"
+    : "${H2:=2}"
+    : "${H3:=3}"
+    : "${H4:=4}"
+    # MTU интерфейса. Дефолт WG (1420) часто не оставляет запаса под
+    # инкапсуляцию на путях, где физический канал уже режет ниже 1500
+    # (мобильный интернет, PPPoE, вложенный VPN и т.п.), что вызывает
+    # фрагментацию и просадку скорости. Подберите под свой путь через
+    # `ping -M do -s <N> <ENDPOINT_HOST>` при выключенном туннеле и
+    # задайте WG_MTU в конфиге явно, если 1340 не подходит.
+    : "${WG_MTU:=1340}"
+
+    # Парсим PROXY_STRING
+    IFS=':' read -r PROXY_HOST PROXY_PORT PROXY_USER PROXY_PASS <<< "$PROXY_STRING"
+    [[ -n "$PROXY_HOST" && -n "$PROXY_PORT" && -n "$PROXY_USER" && -n "$PROXY_PASS" ]] \
+        || die "Не удалось распарсить PROXY_STRING. Ожидается host:port:user:pass"
+
+    WG_TMP_CONF="${RUNTIME_DIR}/${WG_INTERFACE}.conf"
+    log INFO "Конфиг загружен. Прокси: $PROXY_HOST:$PROXY_PORT"
+}
+
+# ====================== ПРОВЕРКИ ======================
+check_deps() {
+    command -v awg-quick >/dev/null 2>&1 || die "awg-quick не найден. Установи amneziawg-tools"
+    command -v 3proxy   >/dev/null 2>&1 || die "3proxy не найден"
+    command -v curl     >/dev/null 2>&1 || die "curl не найден"
+    command -v ip       >/dev/null 2>&1 || die "iproute2 не найден"
+}
+
+is_tunnel_up() {
+    ip link show "$WG_INTERFACE" &>/dev/null
+}
+
+is_proxy_running() {
+    [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null
+}
+
+build_allowed_ips() {
+    # mktemp вместо ручного .tmp-суффикса — исключает гонку при
+    # параллельном запуске двух копий скрипта на один RUNTIME_DIR
+    local tmp
+    tmp=$(mktemp "${ALLOWED_IPS_CACHE}.XXXXXX")
+
+    # Всегда — IP прокси
+    echo "${PROXY_HOST}/32" >> "$tmp"
+
+    if [[ -n "${IPLIST_URLS:-}" ]]; then
+        for url in $IPLIST_URLS; do
+            log INFO "Скачиваю список: $url"
+            # --proto '=https' исключает молчаливый даунгрейд до http,
+            # если url случайно/злонамеренно окажется без https
+            if curl -fsSL --proto '=https' --max-time 45 --connect-timeout 10 "$url" >> "$tmp"; then
+                log OK "Список загружен"
+            else
+                log WARN "Не удалось скачать: $url"
+            fi
+        done
+    else
+        log WARN "IPLIST_URLS пуст — в туннель пойдёт только прокси"
+    fi
+
+    # Оставляем только валидные IPv4 CIDR, убираем дубли
+    ALLOWED_IPS=$(
+        grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$' "$tmp" \
+        | sort -u \
+        | paste -sd, -
+    )
+
+    local count
+    count=$(echo "$ALLOWED_IPS" | tr ',' '\n' | grep -c . || true)
+    log INFO "AllowedIPs: ${count} префиксов"
+
+    if [[ -z "$ALLOWED_IPS" ]]; then
+        rm -f "$tmp"
+        die "AllowedIPs пустой — проверь IPLIST_URLS и сеть"
+    fi
+
+    # Кэш на диск (удобно смотреть)
+    echo "$ALLOWED_IPS" | tr ',' '\n' > "$ALLOWED_IPS_CACHE"
+    rm -f "$tmp"
+}
+
+# ====================== ГЕНЕРАЦИЯ WG-КОНФИГА ======================
+generate_wg_config() {
+    log INFO "Генерирую временный конфиг AmneziaWG с AllowedIPs = ${ALLOWED_IPS}"
+
+    {
+        cat <<EOF
+[Interface]
+PrivateKey = ${PRIVATE_KEY}
+Address = ${ADDRESS}
+MTU = ${WG_MTU}
+
+Jc = ${Jc}
+Jmin = ${Jmin}
+Jmax = ${Jmax}
+S1 = ${S1}
+S2 = ${S2}
+S3 = ${S3}
+S4 = ${S4}
+H1 = ${H1}
+H2 = ${H2}
+H3 = ${H3}
+H4 = ${H4}
+EOF
+
+        # I1–I5 только если не пустые
+        [[ -n "${I1:-}" ]] && echo "I1 = ${I1}"
+        [[ -n "${I2:-}" ]] && echo "I2 = ${I2}"
+        [[ -n "${I3:-}" ]] && echo "I3 = ${I3}"
+        [[ -n "${I4:-}" ]] && echo "I4 = ${I4}"
+        [[ -n "${I5:-}" ]] && echo "I5 = ${I5}"
+
+        cat <<EOF
+
+[Peer]
+PublicKey = ${PUBLIC_KEY}
+PresharedKey = ${PRESHARED_KEY}
+Endpoint = ${ENDPOINT}
+AllowedIPs = ${ALLOWED_IPS}
+PersistentKeepalive = ${PERSISTENTKEEPALIVE}
+EOF
+    } > "$WG_TMP_CONF"
+
+    chmod 600 "$WG_TMP_CONF"
+}
+
+# ====================== 3PROXY ======================
+generate_proxy_config() {
+    # Пишем в temp + chmod до записи данных, а не после — чтобы окно,
+    # в котором файл с логином/паролем читаем всем, было нулевым
+    ( umask 077
+      cat > "$PROXY_CFG" <<EOF
+nscache 65536
+timeouts 1 5 30 60 180 1800 15 60
+log ${RUNTIME_DIR}/3proxy.log
+auth iponly
+allow * 127.0.0.1
+
+parent 1000 http ${PROXY_HOST} ${PROXY_PORT} ${PROXY_USER} ${PROXY_PASS}
+
+proxy -p${LOCAL_HTTP_PORT} -i127.0.0.1
+socks -p${LOCAL_SOCKS_PORT} -i127.0.0.1
+EOF
+    )
+    chmod 600 "$PROXY_CFG"
+}
+
+start_proxy() {
+    if is_proxy_running; then
+        log WARN "3proxy уже запущен (PID $(cat "$PID_FILE"))"
+        return 0
+    fi
+
+    generate_proxy_config
+    log INFO "Запускаю 3proxy..."
+    3proxy "$PROXY_CFG" &
+    echo $! > "$PID_FILE"
+    sleep 1.2
+
+    if is_proxy_running; then
+        log OK "3proxy запущен (HTTP :${LOCAL_HTTP_PORT}, SOCKS :${LOCAL_SOCKS_PORT})"
+    else
+        die "Не удалось запустить 3proxy"
+    fi
+}
+
+stop_proxy() {
+    if is_proxy_running; then
+        kill "$(cat "$PID_FILE")" 2>/dev/null || true
+        rm -f "$PID_FILE"
+        log OK "3proxy остановлен"
+    else
+        pkill -f "3proxy.*${PROXY_CFG}" 2>/dev/null || true
+        rm -f "$PID_FILE"
+    fi
+}
+
+# ====================== ТУННЕЛЬ ======================
+start_tunnel() {
+    # Если интерфейс уже существует — сначала гасим его
+    if is_tunnel_up || ip link show "$WG_INTERFACE" &>/dev/null; then
+        log WARN "Интерфейс $WG_INTERFACE уже существует — останавливаю..."
+        sudo awg-quick down "$WG_TMP_CONF" 2>/dev/null || true
+        sudo awg-quick down "$WG_INTERFACE" 2>/dev/null || true
+        # На всякий случай жёстко удаляем
+        sudo ip link delete "$WG_INTERFACE" 2>/dev/null || true
+        sleep 0.8
+    fi
+
+    generate_wg_config
+    log INFO "Поднимаю AmneziaWG ($WG_INTERFACE)..."
+
+    if ! sudo awg-quick up "$WG_TMP_CONF"; then
+        die "awg-quick up завершился с ошибкой"
+    fi
+
+    sleep 1
+
+    if is_tunnel_up; then
+        log OK "Туннель $WG_INTERFACE поднят"
+        log INFO "Маршрут к прокси:"
+        ip route get "$PROXY_HOST" | head -1
+    else
+        die "Интерфейс $WG_INTERFACE не появился"
+    fi
+}
+
+stop_tunnel() {
+    log INFO "Останавливаю туннель $WG_INTERFACE..."
+    sudo awg-quick down "$WG_TMP_CONF" 2>/dev/null || true
+    sudo awg-quick down "$WG_INTERFACE" 2>/dev/null || true
+    sudo ip link delete "$WG_INTERFACE" 2>/dev/null || true
+    rm -f "$WG_TMP_CONF"
+    log OK "Туннель остановлен"
+}
+
+# ====================== ОСНОВНЫЕ КОМАНДЫ ======================
+do_start() {
+    log INFO "========== ЗАПУСК =========="
+    check_deps
+    load_config
+    build_allowed_ips
+    start_tunnel
+    start_proxy
+
+    log OK "Система готова"
+    echo
+    echo -e "${GREEN}Используй:${NC}"
+    echo "  export HTTP_PROXY=http://127.0.0.1:${LOCAL_HTTP_PORT}"
+    echo "  export HTTPS_PROXY=http://127.0.0.1:${LOCAL_HTTP_PORT}"
+    echo "  export ALL_PROXY=socks5h://127.0.0.1:${LOCAL_SOCKS_PORT}"
+    echo
+}
+
+do_stop() {
+    log INFO "========== ОСТАНОВКА =========="
+    stop_proxy
+    stop_tunnel
+    log OK "Всё остановлено"
+}
+
+do_status() {
+    load_config 2>/dev/null || true
+
+    echo "=== Статус ==="
+    if is_tunnel_up; then
+        echo -e "Туннель ($WG_INTERFACE): ${GREEN}UP${NC}"
+        ip -br addr show "$WG_INTERFACE" 2>/dev/null || true
+        echo -n "Маршрут к $PROXY_HOST: "
+        ip route get "$PROXY_HOST" 2>/dev/null | head -1 || echo "не найден"
+    else
+        echo -e "Туннель: ${RED}DOWN${NC}"
+    fi
+
+    echo
+    if is_proxy_running; then
+        echo -e "3proxy: ${GREEN}RUNNING${NC} (PID $(cat "$PID_FILE"))"
+        echo -n "Проверка через локальный прокси: "
+        if curl -s --max-time 6 -x "http://127.0.0.1:${LOCAL_HTTP_PORT:-8081}" https://api.ipify.org; then
+            echo
+        else
+            echo -e "${RED}не отвечает${NC}"
+        fi
+    else
+        echo -e "3proxy: ${RED}STOPPED${NC}"
+    fi
+}
+
+do_test() {
+    load_config
+    log INFO "Тест доступности upstream-прокси..."
+    # Логин/пароль URL-энкодим и передаём через --proxy-user, а не
+    # склеиваем в URL строкой — иначе спецсимволы (@ : # %) в пароле
+    # ломают парсинг URL, а сырой пароль лишний раз не летает в -x.
+    local enc_user enc_pass
+    enc_user=$(urlencode "$PROXY_USER")
+    enc_pass=$(urlencode "$PROXY_PASS")
+    if curl -s --max-time 8 -x "http://${PROXY_HOST}:${PROXY_PORT}" \
+            --proxy-user "${enc_user}:${enc_pass}" \
+            https://api.ipify.org; then
+        echo
+        log OK "Upstream прокси отвечает"
+    else
+        die "Upstream прокси недоступен"
+    fi
+}
+
+do_restart() {
+    do_stop
+    sleep 1
+    do_start
+}
+
+# ====================== ОЧИСТКА ======================
+cleanup() {
+    # Вызывается только при неожиданном завершении (Ctrl+C и т.д.)
+    # При обычном stop мы сами всё останавливаем
+    if [[ "${CLEANUP_DONE:-}" == "1" ]]; then
+        return
+    fi
+    CLEANUP_DONE=1
+    log WARN "Получен сигнал завершения, останавливаю сервисы..."
+    stop_proxy
+    stop_tunnel
+}
+
+# ====================== MAIN ======================
+case "${1:-}" in
+    start)
+        trap cleanup EXIT INT TERM
+        do_start
+        # Держим скрипт живым, чтобы trap сработал при Ctrl+C
+        log INFO "Менеджер работает. Нажми Ctrl+C для остановки."
+        while true; do sleep 3600; done
+        ;;
+    stop)
+        do_stop
+        ;;
+    restart)
+        do_restart
+        ;;
+    status)
+        do_status
+        ;;
+    test)
+        do_test
+        ;;
+    *)
+        echo "Использование: $0 {start|stop|restart|status|test}"
+        exit 1
+        ;;
+esac
