@@ -1,0 +1,128 @@
+#!/bin/bash
+set -euo pipefail
+
+VERSION="0.2.0"
+PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+
+# shellcheck source=../lib/paths.sh
+source "${PROJECT_ROOT}/lib/paths.sh"
+# shellcheck source=../lib/log.sh
+source "${PROJECT_ROOT}/lib/log.sh"
+# shellcheck source=../lib/config.sh
+source "${PROJECT_ROOT}/lib/config.sh"
+# shellcheck source=../lib/runtime.sh
+source "${PROJECT_ROOT}/lib/runtime.sh"
+# shellcheck source=../lib/network.sh
+source "${PROJECT_ROOT}/lib/network.sh"
+# shellcheck source=../lib/proxy.sh
+source "${PROJECT_ROOT}/lib/proxy.sh"
+# shellcheck source=../lib/tunnel.sh
+source "${PROJECT_ROOT}/lib/tunnel.sh"
+# shellcheck source=../lib/manager.sh
+source "${PROJECT_ROOT}/lib/manager.sh"
+
+umask 077
+
+usage() {
+    cat <<EOF
+amnezia-proxy ${VERSION}
+
+Использование:
+  amnezia-proxy [--config ПУТЬ] <команда>
+
+Команды:
+  start       Запустить туннель и локальные прокси в foreground
+  stop        Остановить запущенный менеджер и сетевые компоненты
+  restart     Перезапустить менеджер
+  status      Показать состояние менеджера, туннеля и 3proxy
+  test        Проверить доступность upstream-прокси
+  help        Показать эту справку
+
+Опции:
+  -c, --config ПУТЬ  Использовать указанный файл конфигурации
+  -h, --help         Показать эту справку
+  -V, --version      Показать версию
+
+Переменные окружения:
+  AMNEZIA_PROXY_CONFIG       Путь к конфигу
+  AMNEZIA_PROXY_STATE_DIR    Каталог логов и постоянного состояния
+  AMNEZIA_PROXY_CACHE_DIR    Каталог кэша
+  AMNEZIA_PROXY_RUNTIME_DIR  Каталог PID и временных конфигов
+  NO_COLOR                   Отключить цветной вывод
+EOF
+}
+
+main() {
+    local command=""
+    while (( $# > 0 )); do
+        case "$1" in
+            -c|--config)
+                (( $# >= 2 )) || { echo "Для $1 требуется путь" >&2; return 2; }
+                CONFIG_FILE="$2"
+                USING_LEGACY_CONFIG=0
+                shift 2
+                ;;
+            --config=*)
+                CONFIG_FILE="${1#*=}"
+                USING_LEGACY_CONFIG=0
+                shift
+                ;;
+            -h|--help|help)
+                usage
+                return 0
+                ;;
+            -V|--version)
+                echo "amnezia-proxy ${VERSION}"
+                return 0
+                ;;
+            -*)
+                echo "Неизвестная опция: $1" >&2
+                usage >&2
+                return 2
+                ;;
+            *)
+                command="$1"
+                shift
+                break
+                ;;
+        esac
+    done
+
+    if (( $# > 0 )); then
+        echo "Лишние аргументы: $*" >&2
+        return 2
+    fi
+
+    case "$command" in
+        start|stop|restart|status|test)
+            init_paths
+            ;;
+        "")
+            usage >&2
+            return 2
+            ;;
+        *)
+            echo "Неизвестная команда: $command" >&2
+            usage >&2
+            return 2
+            ;;
+    esac
+
+    case "$command" in
+        start) run_manager ;;
+        stop) do_stop ;;
+        restart)
+            do_stop
+            sleep 1
+            CLEANUP_DONE=0
+            CONFIG_LOADED=0
+            run_manager
+            ;;
+        status) do_status ;;
+        test) do_test ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

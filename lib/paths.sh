@@ -1,0 +1,44 @@
+#!/bin/bash
+
+APP_NAME="amnezia-proxy-manager"
+
+CONFIG_HOME="${XDG_CONFIG_HOME:-${HOME}/.config}"
+CACHE_HOME="${XDG_CACHE_HOME:-${HOME}/.cache}"
+STATE_HOME="${XDG_STATE_HOME:-${HOME}/.local/state}"
+DEFAULT_CONFIG_FILE="${CONFIG_HOME}/${APP_NAME}/config"
+LEGACY_CONFIG_FILE="${HOME}/.amnezia-proxy.conf"
+
+USING_LEGACY_CONFIG=0
+if [[ -n "${AMNEZIA_PROXY_CONFIG:-}" ]]; then
+    CONFIG_FILE="$AMNEZIA_PROXY_CONFIG"
+elif [[ -f "$DEFAULT_CONFIG_FILE" ]]; then
+    CONFIG_FILE="$DEFAULT_CONFIG_FILE"
+elif [[ -f "$LEGACY_CONFIG_FILE" ]]; then
+    CONFIG_FILE="$LEGACY_CONFIG_FILE"
+    USING_LEGACY_CONFIG=1
+else
+    CONFIG_FILE="$DEFAULT_CONFIG_FILE"
+fi
+
+STATE_DIR="${AMNEZIA_PROXY_STATE_DIR:-${STATE_HOME}/${APP_NAME}}"
+CACHE_DIR="${AMNEZIA_PROXY_CACHE_DIR:-${CACHE_HOME}/${APP_NAME}}"
+if [[ -n "${AMNEZIA_PROXY_RUNTIME_DIR:-}" ]]; then
+    RUNTIME_DIR="$AMNEZIA_PROXY_RUNTIME_DIR"
+elif [[ -n "${XDG_RUNTIME_DIR:-}" ]]; then
+    RUNTIME_DIR="${XDG_RUNTIME_DIR}/${APP_NAME}"
+else
+    RUNTIME_DIR="${TMPDIR:-/tmp}/${APP_NAME}-${UID}"
+fi
+
+PROXY_CFG="${RUNTIME_DIR}/3proxy.cfg"
+LOG_FILE="${STATE_DIR}/manager.log"
+PROXY_LOG_FILE="${STATE_DIR}/3proxy.log"
+PID_FILE="${RUNTIME_DIR}/3proxy.pid"
+MANAGER_PID_FILE="${RUNTIME_DIR}/manager.pid"
+LOCK_FILE="${RUNTIME_DIR}/manager.lock"
+ALLOWED_IPS_CACHE="${CACHE_DIR}/allowed_ips.txt"
+
+init_paths() {
+    mkdir -p "$STATE_DIR" "$CACHE_DIR" "$RUNTIME_DIR"
+    chmod 700 "$STATE_DIR" "$CACHE_DIR" "$RUNTIME_DIR" 2>/dev/null || true
+}
