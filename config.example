@@ -2,12 +2,16 @@
 WG_INTERFACE=amnw0
 PRIVATE_KEY="replace-me"
 ADDRESS=10.0.0.2/32
-DNS=1.1.1.1
+# Пусто — сохранить системный DNS. Если указан IPv4 DNS, его /32 автоматически
+# добавляется в AllowedIPs, а awg-quick временно настраивает его через resolvconf.
+DNS=
 PUBLIC_KEY="replace-me"
 PRESHARED_KEY="replace-me"
 ENDPOINT=198.51.100.10:51820
 PERSISTENTKEEPALIVE=25
-WG_MTU=1340
+# auto использует расчёт awg-quick: MTU маршрута к endpoint минус 80.
+# Число задаёт фиксированный MTU, например WG_MTU=1390.
+WG_MTU=auto
 
 # Параметры обфускации AmneziaWG
 Jc=4
@@ -26,6 +30,15 @@ H4=4
 PROXY_STRING="203.0.113.10:3128:user:replace-me"
 LOCAL_HTTP_PORT=8081
 LOCAL_SOCKS_PORT=8080
+PROXY_PARENT_RETRIES=2
+
+# off — не проверять при старте; warn — предупредить; strict — откатить запуск.
+STARTUP_HEALTHCHECK=warn
+HEALTHCHECK_URL=https://api.ipify.org
+
+# Только для 3proxy 0.9.6+ и обхода проблем PMTUD.
+# Обычно достаточно корректного WG_MTU.
+# PROXY_MAXSEG=1350
 
 # HTTPS-адреса списков IPv4 CIDR, разделённые пробелами. Можно оставить пустым.
 IPLIST_URLS=""

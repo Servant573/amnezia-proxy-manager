@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-VERSION="0.2.0"
+VERSION="0.3.0"
 PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
 # shellcheck source=../lib/paths.sh
@@ -36,6 +36,7 @@ amnezia-proxy ${VERSION}
   restart     Перезапустить менеджер
   status      Показать состояние менеджера, туннеля и 3proxy
   test        Проверить доступность upstream-прокси
+  diagnose    Проверить MTU, маршруты, handshake, HTTP и SOCKS
   help        Показать эту справку
 
 Опции:
@@ -94,7 +95,7 @@ main() {
     fi
 
     case "$command" in
-        start|stop|restart|status|test)
+        start|stop|restart|status|test|diagnose)
             init_paths
             ;;
         "")
@@ -120,6 +121,7 @@ main() {
             ;;
         status) do_status ;;
         test) do_test ;;
+        diagnose) do_diagnose ;;
     esac
 }
 

@@ -34,6 +34,10 @@ assert_file_missing() {
 assert_eq "value with spaces" "$(trim '  value with spaces  ')" "trim"
 assert_eq "quoted value" "$(strip_quotes '"quoted value"')" "двойные кавычки"
 assert_eq "quoted value" "$(strip_quotes "'quoted value'")" "одинарные кавычки"
+is_ipv4 "203.0.113.7" || fail "валидный IPv4 отклонён"
+is_ipv4 "999.0.0.1" && fail "невалидный IPv4 принят"
+is_ipv4_cidr "203.0.113.0/24" || fail "валидный CIDR отклонён"
+is_ipv4_cidr "203.0.113.0/42" && fail "невалидная маска CIDR принята"
 
 printf '%s\n' \
     'WG_INTERFACE=amn-test' \
@@ -58,6 +62,72 @@ generate_wg_config >/dev/null
 grep -q '^MTU = 1280$' "$WG_TMP_CONF" || fail "WG_MTU не попал во временный конфиг"
 grep -q '^DNS = 1.1.1.1$' "$WG_TMP_CONF" || fail "DNS не попал во временный конфиг"
 
+WG_MTU=auto
+generate_wg_config >/dev/null
+if grep -q '^MTU = ' "$WG_TMP_CONF"; then
+    fail "WG_MTU=auto должен оставить расчёт MTU awg-quick"
+fi
+WG_MTU=1280
+
+PROXY_CONNECT_HOST=203.0.113.77
+PROXY_MAXSEG=1350
+threeproxy_version() { echo 0.9.6; }
+generate_proxy_config
+grep -q '^timeouts 1 5 30 60 180 1800 15 60 15 5$' "$PROXY_CFG" || fail "неполный набор timeout 3proxy"
+grep -q '^parent 1000 http 203.0.113.77 ' "$PROXY_CFG" || fail "HTTP parent не закреплён за IPv4"
+grep -q '^fakeresolve$' "$PROXY_CFG" || fail "SOCKS DNS не переведён на upstream"
+grep -q '^parent 1000 connect+ 203.0.113.77 ' "$PROXY_CFG" || fail "SOCKS не использует CONNECT+ parent"
+grep -q '^maxseg 1350$' "$PROXY_CFG" || fail "PROXY_MAXSEG не попал в конфиг"
+PROXY_MAXSEG=""
+threeproxy_version_at_least 0 9 6 || fail "сравнение версии 3proxy отклонило равную версию"
+threeproxy_version_at_least 0 9 7 && fail "сравнение версии 3proxy приняло старую версию"
+
+ss() { printf '%s\n' 'LISTEN 0 128 127.0.0.1:8081 0.0.0.0:*'; }
+is_tcp_port_listening 8081 || fail "listening HTTP-порт не обнаружен"
+is_tcp_port_listening 8080 && fail "свободный SOCKS-порт принят за занятый"
+unset -f ss
+
+MOCK_BIN="${TEST_TMP}/mock-bin"
+mkdir -p "$MOCK_BIN"
+printf '%s\n' \
+    '#!/bin/bash' \
+    'printf "203.0.113.10 STREAM host\\n203.0.113.11 STREAM host\\n203.0.113.10 STREAM host\\n"' \
+    > "${MOCK_BIN}/getent"
+chmod 755 "${MOCK_BIN}/getent"
+PATH="${MOCK_BIN}:${PATH}"
+assert_eq "203.0.113.10 203.0.113.11" "$(resolve_ipv4_host proxy.test)" "резолвинг hostname"
+
+curl() {
+    printf '%s\n' '198.51.100.0/24' '999.1.1.1/24' '192.0.2.0/99' ' # comment'
+}
+PROXY_IPS="203.0.113.10 203.0.113.11"
+IPLIST_URLS="https://lists.example.test/ipv4"
+build_allowed_ips >/dev/null
+[[ ",$ALLOWED_IPS," == *",203.0.113.10/32,"* ]] || fail "IPv4 прокси не добавлен в AllowedIPs"
+[[ ",$ALLOWED_IPS," == *",1.1.1.1/32,"* ]] || fail "туннельный DNS не добавлен в AllowedIPs"
+[[ ",$ALLOWED_IPS," == *",198.51.100.0/24,"* ]] || fail "валидный CIDR списка потерян"
+[[ "$ALLOWED_IPS" != *"999.1.1.1"* ]] || fail "невалидный IPv4 попал в AllowedIPs"
+[[ "$ALLOWED_IPS" != *"/99"* ]] || fail "невалидная маска попала в AllowedIPs"
+unset -f curl
+
+WG_INTERFACE=amn-test
+PROXY_CONNECT_HOST=203.0.113.10
+ENDPOINT_IPS="192.0.2.10"
+route_for_ipv4() {
+    case "$1" in
+        192.0.2.10) echo "192.0.2.10 via 192.0.2.1 dev eth0" ;;
+        *) echo "$1 dev amn-test" ;;
+    esac
+}
+verify_tunnel_routes >/dev/null
+underlay_mtu_for_ipv4() { echo 1500; }
+assert_eq "1420" "$(recommended_awg_mtu)" "автоматическая рекомендация MTU"
+
+route_for_ipv4() { echo "$1 dev amn-test"; }
+if (verify_tunnel_routes >/dev/null 2>&1); then
+    fail "VPN-петля endpoint не обнаружена"
+fi
+
 log INFO "plain log" >/dev/null
 if LC_ALL=C grep -q $'\033' "$LOG_FILE"; then
     fail "ANSI-последовательность попала в лог-файл"
@@ -77,7 +147,7 @@ fi
 
 assert_eq "amnezia-proxy ${VERSION}" "$(main --version)" "версия CLI"
 assert_eq "amnezia-proxy ${VERSION}" "$("$LAUNCHER" --version)" "совместимый launcher"
-main --help | grep -q 'restart' || fail "в help отсутствует restart"
+main --help | grep -q 'diagnose' || fail "в help отсутствует diagnose"
 
 custom_status=""
 if custom_status=$(main --config "${TEST_TMP}/explicit-config" status 2>&1); then

@@ -19,6 +19,22 @@ strip_quotes() {
     printf '%s' "$s"
 }
 
+validate_transport_config() {
+    if [[ "$WG_MTU" != "auto" ]]; then
+        [[ "$WG_MTU" =~ ^[0-9]+$ ]] && (( WG_MTU >= 576 && WG_MTU <= 9000 )) \
+            || die "WG_MTU должен быть auto или числом от 576 до 9000"
+    fi
+    [[ "$STARTUP_HEALTHCHECK" == "off" || "$STARTUP_HEALTHCHECK" == "warn" || "$STARTUP_HEALTHCHECK" == "strict" ]] \
+        || die "STARTUP_HEALTHCHECK должен быть off, warn или strict"
+    [[ "$HEALTHCHECK_URL" == https://* ]] || die "HEALTHCHECK_URL должен использовать https://"
+    [[ "$PROXY_PARENT_RETRIES" =~ ^[0-9]+$ ]] && (( PROXY_PARENT_RETRIES >= 1 && PROXY_PARENT_RETRIES <= 10 )) \
+        || die "PROXY_PARENT_RETRIES должен быть числом от 1 до 10"
+    if [[ -n "$PROXY_MAXSEG" ]]; then
+        [[ "$PROXY_MAXSEG" =~ ^[0-9]+$ ]] && (( PROXY_MAXSEG >= 536 && PROXY_MAXSEG <= 8960 )) \
+            || die "PROXY_MAXSEG должен быть числом от 536 до 8960"
+    fi
+}
+
 load_config() {
     [[ -f "$CONFIG_FILE" ]] || die "Конфиг не найден: $CONFIG_FILE"
 
@@ -42,7 +58,8 @@ load_config() {
         case "$key" in
             WG_INTERFACE|PRIVATE_KEY|ADDRESS|DNS|PUBLIC_KEY|ENDPOINT|PERSISTENTKEEPALIVE|\
             Jc|Jmin|Jmax|S1|S2|S3|S4|H1|H2|H3|H4|I1|I2|I3|I4|I5|PRESHARED_KEY|\
-            PROXY_STRING|LOCAL_HTTP_PORT|LOCAL_SOCKS_PORT|IPLIST_URLS|WG_MTU)
+            PROXY_STRING|LOCAL_HTTP_PORT|LOCAL_SOCKS_PORT|IPLIST_URLS|WG_MTU|\
+            HEALTHCHECK_URL|STARTUP_HEALTHCHECK|PROXY_MAXSEG|PROXY_PARENT_RETRIES)
                 printf -v "$key" '%s' "$value"
                 ;;
         esac
@@ -71,7 +88,13 @@ load_config() {
     : "${H2:=2}"
     : "${H3:=3}"
     : "${H4:=4}"
-    : "${WG_MTU:=1340}"
+    : "${WG_MTU:=auto}"
+    : "${HEALTHCHECK_URL:=https://api.ipify.org}"
+    : "${STARTUP_HEALTHCHECK:=warn}"
+    : "${PROXY_MAXSEG:=}"
+    : "${PROXY_PARENT_RETRIES:=2}"
+
+    validate_transport_config
 
     IFS=':' read -r PROXY_HOST PROXY_PORT PROXY_USER PROXY_PASS <<< "$PROXY_STRING"
     [[ -n "$PROXY_HOST" && -n "$PROXY_PORT" && -n "$PROXY_USER" && -n "$PROXY_PASS" ]] \
