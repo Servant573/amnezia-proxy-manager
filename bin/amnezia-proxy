@@ -14,6 +14,7 @@ source "${PROJECT_ROOT}/lib/config.sh"
 source "${PROJECT_ROOT}/lib/runtime.sh"
 # shellcheck source=../lib/network.sh
 source "${PROJECT_ROOT}/lib/network.sh"
+source "${PROJECT_ROOT}/lib/validation.sh"
 # shellcheck source=../lib/proxy.sh
 source "${PROJECT_ROOT}/lib/proxy.sh"
 # shellcheck source=../lib/tunnel.sh
@@ -21,6 +22,7 @@ source "${PROJECT_ROOT}/lib/tunnel.sh"
 source "${PROJECT_ROOT}/lib/guard.sh"
 # shellcheck source=../lib/manager.sh
 source "${PROJECT_ROOT}/lib/manager.sh"
+source "${PROJECT_ROOT}/lib/diagnostics.sh"
 
 umask 077
 
@@ -38,6 +40,7 @@ amnezia-proxy ${VERSION}
   status      Показать состояние менеджера, туннеля и 3proxy
   test        Проверить доступность upstream-прокси
   diagnose    Проверить MTU, маршруты, handshake, HTTP и SOCKS
+  config validate  Проверить конфиг без сети и изменения файлов
   help        Показать эту справку
 
 Опции:
@@ -90,6 +93,10 @@ main() {
         esac
     done
 
+    if [[ "$command" == config && $# == 1 && "$1" == validate ]]; then
+        ( LOG_TO_FILE=0; load_config; echo "Конфиг корректен" )
+        return $?
+    fi
     if (( $# > 0 )); then
         echo "Лишние аргументы: $*" >&2
         return 2

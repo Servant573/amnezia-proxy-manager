@@ -13,7 +13,7 @@ TEST_TMP=$(mktemp -d)
 trap 'rm -rf -- "$TEST_TMP"' EXIT
 export AMNEZIA_PROXY_RUNTIME_DIR="$TEST_TMP"
 source "$PROJECT_ROOT/bin/amnezia-proxy"
-sudo() { "$@"; }
+sudo() { [[ "$1" != -n ]] || shift; "$@"; }
 WG_INTERFACE=vpn-audit
 PROXY_CONNECT_HOST=198.18.0.1
 PROXY_PORT=3128
@@ -25,6 +25,7 @@ ip addr add 198.18.0.2/24 dev vpn-audit
 ip addr add 198.19.0.2/24 dev wan-audit
 start_guard
 table=$(<"$GUARD_FILE")
+guard_is_active || { nft -j list table inet "$table"; echo 'Valid firewall not recognized'; exit 1; }
 probe() { timeout 1 bash -c 'exec 3<>/dev/tcp/198.18.0.1/3128' 2>/dev/null || true; }
 packets() { nft list table inet "$table" | sed -nE 's/.*counter packets ([0-9]+).*/\1/p'; }
 probe
@@ -38,8 +39,14 @@ ip link add vpn-audit type dummy
 ip link set vpn-audit up
 ip addr add 198.18.0.2/24 dev vpn-audit
 ip route replace 198.18.0.1/32 dev vpn-audit
+if guard_is_active; then echo 'Guard for replaced interface accepted'; exit 1; fi
 probe
 [[ "$(packets)" -gt "$before" ]] || { echo 'Replacement interface not blocked'; exit 1; }
+nft flush chain inet "$table" output
+if guard_is_active; then echo 'Empty firewall accepted'; exit 1; fi
+nft delete table inet "$table"
+status=0; guard_is_active || status=$?
+[[ "$status" == 1 ]] || { echo 'Deleted table not classified as failure'; exit 1; }
 stop_guard
 [[ ! -e "$GUARD_FILE" ]] || exit 1
 echo 'OK: kernel blocks underlay and replacement interface; permits VPN output'

@@ -22,7 +22,9 @@ log() {
         ERR)  color="$RED"; padding="   " ;;
     esac
 
-    printf '%s [%s]%s%s\n' "$ts" "$level" "$padding" "$msg" >> "$LOG_FILE"
+    if [[ "${LOG_TO_FILE:-1}" == 1 ]]; then
+        printf '%s [%s]%s%s\n' "$ts" "$level" "$padding" "$msg" >> "$LOG_FILE"
+    fi
     if colors_enabled && [[ -n "$color" ]]; then
         printf '%s %b[%s]%b%s%s\n' "$ts" "$color" "$level" "$NC" "$padding" "$msg"
     else

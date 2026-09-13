@@ -6,7 +6,7 @@ trap 'rm -rf -- "$TEST_TMP"' EXIT
 export AMNEZIA_PROXY_RUNTIME_DIR="$TEST_TMP/runtime"
 export AMNEZIA_PROXY_STATE_DIR="$TEST_TMP/state"
 export AMNEZIA_PROXY_CACHE_DIR="$TEST_TMP/cache"
-export AMNEZIA_PROXY_CONFIG="$PROJECT_ROOT/config.example"
+export AMNEZIA_PROXY_CONFIG="$PROJECT_ROOT/tests/fixtures/valid.conf"
 source "$PROJECT_ROOT/bin/amnezia-proxy"
 init_paths
 load_config >/dev/null
@@ -38,6 +38,8 @@ cleanup >/dev/null
 CLEANUP_DONE=0
 
 # A replacement interface with the same name has a different index.
+ALLOWED_IPS=203.0.113.10/32
+generate_wg_config >/dev/null
 printf '%s 42 %s\n' "$WG_INTERFACE" "$(cat /proc/sys/kernel/random/boot_id)" > "$TUNNEL_OWNER_FILE"
 interface_index() { echo 43; }
 if stop_tunnel >/dev/null; then fail 'replacement interface accepted'; fi

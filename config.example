@@ -1,4 +1,5 @@
 # Интерфейс и ключи AmneziaWG
+# После заполнения: ./amnezia-proxy-manager config validate
 WG_INTERFACE=amnw0
 PRIVATE_KEY="replace-me"
 ADDRESS=10.0.0.2/32
@@ -7,6 +8,7 @@ ADDRESS=10.0.0.2/32
 DNS=
 PUBLIC_KEY="replace-me"
 PRESHARED_KEY="replace-me"
+# Если на сервере PSK не используется, задайте PRESHARED_KEY=.
 ENDPOINT=198.51.100.10:51820
 PERSISTENTKEEPALIVE=25
 # auto использует расчёт awg-quick: MTU маршрута к endpoint минус 80.
@@ -32,6 +34,7 @@ LOCAL_HTTP_PORT=8081
 LOCAL_SOCKS_PORT=8080
 PROXY_PARENT_RETRIES=2
 
+# Проверяются HTTP и SOCKS, успешным считается только HTTP 2xx.
 # off — не проверять при старте; warn — предупредить; strict — откатить запуск.
 STARTUP_HEALTHCHECK=warn
 HEALTHCHECK_URL=https://api.ipify.org

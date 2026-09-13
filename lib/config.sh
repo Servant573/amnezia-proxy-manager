@@ -19,21 +19,10 @@ strip_quotes() {
     printf '%s' "$s"
 }
 
-validate_transport_config() {
-    if [[ "$WG_MTU" != "auto" ]]; then
-        [[ "$WG_MTU" =~ ^[0-9]+$ ]] && (( WG_MTU >= 576 && WG_MTU <= 9000 )) \
-            || die "WG_MTU должен быть auto или числом от 576 до 9000"
-    fi
-    [[ "$STARTUP_HEALTHCHECK" == "off" || "$STARTUP_HEALTHCHECK" == "warn" || "$STARTUP_HEALTHCHECK" == "strict" ]] \
-        || die "STARTUP_HEALTHCHECK должен быть off, warn или strict"
-    [[ "$HEALTHCHECK_URL" == https://* ]] || die "HEALTHCHECK_URL должен использовать https://"
-    [[ "$PROXY_PARENT_RETRIES" =~ ^[0-9]+$ ]] && (( PROXY_PARENT_RETRIES >= 1 && PROXY_PARENT_RETRIES <= 10 )) \
-        || die "PROXY_PARENT_RETRIES должен быть числом от 1 до 10"
-    if [[ -n "$PROXY_MAXSEG" ]]; then
-        [[ "$PROXY_MAXSEG" =~ ^[0-9]+$ ]] && (( PROXY_MAXSEG >= 536 && PROXY_MAXSEG <= 8960 )) \
-            || die "PROXY_MAXSEG должен быть числом от 536 до 8960"
-    fi
-}
+CONFIG_KEYS='WG_INTERFACE PRIVATE_KEY ADDRESS DNS PUBLIC_KEY ENDPOINT PERSISTENTKEEPALIVE
+Jc Jmin Jmax S1 S2 S3 S4 H1 H2 H3 H4 I1 I2 I3 I4 I5 PRESHARED_KEY
+PROXY_STRING LOCAL_HTTP_PORT LOCAL_SOCKS_PORT IPLIST_URLS WG_MTU
+HEALTHCHECK_URL STARTUP_HEALTHCHECK PROXY_MAXSEG PROXY_PARENT_RETRIES'
 
 load_config() {
     [[ -f "$CONFIG_FILE" ]] || die "Конфиг не найден: $CONFIG_FILE"
@@ -48,31 +37,42 @@ load_config() {
         log WARN "Конфиг $CONFIG_FILE имеет права $cfg_perms — рекомендуется chmod 600"
     fi
 
-    local key value
-    while IFS='=' read -r key value || [[ -n "$key" ]]; do
-        [[ "$key" =~ ^[[:space:]]*# ]] && continue
-        [[ -z "$key" ]] && continue
-        key=$(trim "$key")
-        value=$(strip_quotes "$(trim "$value")")
-
-        case "$key" in
-            WG_INTERFACE|PRIVATE_KEY|ADDRESS|DNS|PUBLIC_KEY|ENDPOINT|PERSISTENTKEEPALIVE|\
-            Jc|Jmin|Jmax|S1|S2|S3|S4|H1|H2|H3|H4|I1|I2|I3|I4|I5|PRESHARED_KEY|\
-            PROXY_STRING|LOCAL_HTTP_PORT|LOCAL_SOCKS_PORT|IPLIST_URLS|WG_MTU|\
-            HEALTHCHECK_URL|STARTUP_HEALTHCHECK|PROXY_MAXSEG|PROXY_PARENT_RETRIES)
-                printf -v "$key" '%s' "$value"
-                ;;
-        esac
+    local key value line number=0 known
+    local -A seen=()
+    CONFIG_LOADED=0
+    for key in $CONFIG_KEYS; do unset "$key"; done
+    PROXY_IPS=""; PROXY_CONNECT_HOST=""; ENDPOINT_IPS=""
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        number=$((number + 1))
+        line=$(trim "$line")
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        [[ "$line" == *=* ]] || die "Конфиг, строка $number: ожидается KEY=value"
+        key=$(trim "${line%%=*}")
+        [[ "$key" =~ ^[A-Za-z][A-Za-z0-9_]*$ ]] || die "Конфиг, строка $number: некорректное имя параметра"
+        known=0
+        for value in $CONFIG_KEYS; do [[ "$key" != "$value" ]] || known=1; done
+        [[ "$known" == 1 ]] || die "Конфиг, строка $number: неизвестный параметр $key"
+        [[ -z "${seen[$key]:-}" ]] || die "Конфиг, строка $number: повтор параметра $key"
+        seen[$key]=1
+        value=$(trim "${line#*=}")
+        if [[ "$value" == \"* || "$value" == \'* ]]; then
+            [[ ${#value} -ge 2 && "${value:0:1}" == "${value: -1}" ]] || die "Конфиг, строка $number: незакрытая кавычка"
+        fi
+        value=$(strip_quotes "$value")
+        [[ "$value" != *[[:cntrl:]]* ]] || die "Конфиг, строка $number: управляющие символы запрещены"
+        if [[ -z "$value" ]]; then
+            case "$key" in
+                DNS|PRESHARED_KEY|IPLIST_URLS|PROXY_MAXSEG|I1|I2|I3|I4|I5) ;;
+                *) die "Конфиг, строка $number: $key не должен быть пустым" ;;
+            esac
+        fi
+        printf -v "$key" '%s' "$value"
     done < "$CONFIG_FILE"
 
-    : "${WG_INTERFACE:?WG_INTERFACE не задан}"
-    : "${PRIVATE_KEY:?PRIVATE_KEY не задан}"
-    : "${ADDRESS:?ADDRESS не задан}"
-    : "${PUBLIC_KEY:?PUBLIC_KEY не задан}"
-    : "${ENDPOINT:?ENDPOINT не задан}"
-    : "${PROXY_STRING:?PROXY_STRING не задан}"
+    : "${WG_INTERFACE:=}" "${PRIVATE_KEY:=}" "${ADDRESS:=}"
+    : "${PUBLIC_KEY:=}" "${ENDPOINT:=}" "${PROXY_STRING:=}"
     : "${IPLIST_URLS:=}"
-    : "${PRESHARED_KEY:?PRESHARED_KEY не задан}"
+    : "${PRESHARED_KEY:=}"
     : "${LOCAL_HTTP_PORT:=8081}"
     : "${LOCAL_SOCKS_PORT:=8080}"
     : "${PERSISTENTKEEPALIVE:=25}"
@@ -94,15 +94,7 @@ load_config() {
     : "${PROXY_MAXSEG:=}"
     : "${PROXY_PARENT_RETRIES:=2}"
 
-    validate_transport_config
-    [[ "$WG_INTERFACE" =~ ^[a-zA-Z0-9_=+.-]{1,15}$ && "$WG_INTERFACE" != . && "$WG_INTERFACE" != .. ]] \
-        || die "Недопустимое имя WG_INTERFACE"
-
-    IFS=':' read -r PROXY_HOST PROXY_PORT PROXY_USER PROXY_PASS <<< "$PROXY_STRING"
-    [[ -n "$PROXY_HOST" && -n "$PROXY_PORT" && -n "$PROXY_USER" && -n "$PROXY_PASS" ]] \
-        || die "Не удалось распарсить PROXY_STRING. Ожидается host:port:user:pass"
-    [[ "$PROXY_PORT" =~ ^[1-9][0-9]{0,4}$ ]] && (( PROXY_PORT <= 65535 )) \
-        || die "Порт upstream должен быть от 1 до 65535"
+    validate_config_values
 
     WG_TMP_CONF="${RUNTIME_DIR}/${WG_INTERFACE}.conf"
     CONFIG_LOADED=1

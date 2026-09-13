@@ -5,4 +5,7 @@ for file in amnezia-proxy-manager bin/amnezia-proxy lib/*.sh tests/*.sh; do
 done
 bash tests/run.sh
 bash tests/security.sh
+bash tests/behavior.sh
+python3 tests/healthcheck.py
+python3 tests/processes.py
 bash tests/netns.sh --container

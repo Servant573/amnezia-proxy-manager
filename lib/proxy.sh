@@ -46,8 +46,20 @@ is_tcp_port_listening() {
 }
 
 proxy_ports_listening() {
-    is_tcp_port_listening "$LOCAL_HTTP_PORT" \
-        && is_tcp_port_listening "$LOCAL_SOCKS_PORT"
+    local pid listeners port
+    pid=$(read_pid "$PID_FILE") || return 1
+    listeners=$(ss -H -ltnp 2>/dev/null) || return 1
+    for port in "$LOCAL_HTTP_PORT" "$LOCAL_SOCKS_PORT"; do
+        awk -v address="127.0.0.1:$port" -v owner="pid=$pid," \
+            '$4 == address && index($0, owner) {found=1} END {exit !found}' <<< "$listeners" || return 1
+    done
+}
+
+proxy_health_request() {
+    local code
+    code=$(curl -q -fsS --globoff --noproxy '' --connect-timeout 3 --max-time 10 \
+        --output /dev/null --write-out '%{http_code}' "$@" -- "$HEALTHCHECK_URL") || return 1
+    [[ "$code" =~ ^2[0-9][0-9]$ ]]
 }
 
 is_proxy_ready() {
@@ -61,6 +73,12 @@ ensure_proxy_ports_available() {
             die "Локальный TCP-порт $port уже занят"
         fi
     done
+}
+
+quote_3proxy() {
+    local value="$1"
+    value="${value//\"/\"\"}"
+    printf '"%s"' "$value"
 }
 
 generate_proxy_config() {
@@ -77,21 +95,21 @@ generate_proxy_config() {
       cat > "$PROXY_CFG" <<EOF
 nscache 65536
 timeouts 1 5 30 60 180 1800 15 60 15 5
-log ${PROXY_LOG_FILE}
+log $(quote_3proxy "$PROXY_LOG_FILE")
 parentretries ${PROXY_PARENT_RETRIES}
 EOF
       [[ -n "$PROXY_MAXSEG" ]] && echo "maxseg ${PROXY_MAXSEG}" >> "$PROXY_CFG"
       cat >> "$PROXY_CFG" <<EOF
 auth iponly
 allow * 127.0.0.1
-parent 1000 http ${parent_host} ${PROXY_PORT} ${PROXY_USER} ${PROXY_PASS}
+parent 1000 http ${parent_host} ${PROXY_PORT} $(quote_3proxy "$PROXY_USER") $(quote_3proxy "$PROXY_PASS")
 proxy -p${LOCAL_HTTP_PORT} -i127.0.0.1${socket_options}
 
 flush
 fakeresolve
 auth iponly
 allow * 127.0.0.1 * * CONNECT
-parent 1000 connect+ ${parent_host} ${PROXY_PORT} ${PROXY_USER} ${PROXY_PASS}
+parent 1000 connect+ ${parent_host} ${PROXY_PORT} $(quote_3proxy "$PROXY_USER") $(quote_3proxy "$PROXY_PASS")
 socks -p${LOCAL_SOCKS_PORT} -i127.0.0.1${socket_options}
 EOF
     )
@@ -128,22 +146,26 @@ start_proxy() {
 
 stop_proxy() {
     if is_proxy_running; then
-        local pid attempt
+        local pid identity
         pid=$(read_pid "$PID_FILE")
-        kill "$pid" 2>/dev/null || true
-        for (( attempt=0; attempt<30; attempt++ )); do
-            is_proxy_running || break
-            sleep 0.1
-        done
-        if is_proxy_running; then
+        identity=$(process_identity "$pid") || return 1
+        kill -TERM "$pid" 2>/dev/null || { ! same_process_alive "$pid" "$identity" || return 1; }
+        if ! wait_for_process_exit "$pid" "$identity" 30; then
             log ERR "3proxy не завершился; PID и сетевая защита сохранены"
             return 1
         fi
+        wait "$pid" 2>/dev/null || true
         rm -f "$PID_FILE"
         log OK "3proxy остановлен"
     else
         local unverified_pid
         if unverified_pid=$(read_pid "$PID_FILE") && kill -0 "$unverified_pid" 2>/dev/null; then
+            if process_record_matches "$PID_FILE" "$unverified_pid" &&
+                ! same_process_alive "$unverified_pid" "$(process_identity "$unverified_pid")"; then
+                rm -f "$PID_FILE"
+                PROXY_OWNED=0
+                return 0
+            fi
             log ERR "PID $unverified_pid существует, но принадлежность не подтверждена; процесс не тронут"
             return 1
         fi

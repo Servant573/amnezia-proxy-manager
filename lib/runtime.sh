@@ -2,6 +2,28 @@
 
 LOCK_FD=""
 
+run_privileged() {
+    sudo -n timeout --kill-after=2 10 "$@"
+}
+
+same_process_alive() {
+    local pid="$1" identity="$2" line state
+    [[ -r "/proc/$pid/stat" ]] || return 1
+    line=$(<"/proc/$pid/stat")
+    state="${line##*) }"; state="${state%% *}"
+    [[ "$state" != Z && "$state" != X ]] || return 1
+    [[ "$(process_identity "$pid" 2>/dev/null)" == "$identity" ]]
+}
+
+wait_for_process_exit() {
+    local pid="$1" identity="$2" attempts="$3" attempt
+    for (( attempt=0; attempt<attempts; attempt++ )); do
+        same_process_alive "$pid" "$identity" || return 0
+        sleep 0.1
+    done
+    ! same_process_alive "$pid" "$identity"
+}
+
 process_identity() {
     local pid="$1" stat_line
     local -a fields

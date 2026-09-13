@@ -2,6 +2,21 @@
 
 GUARD_OWNED=0
 
+guard_is_active() {
+    local table rules index tables
+    [[ -f "$GUARD_FILE" ]] || return 1
+    read -r table < "$GUARD_FILE" || return 1
+    [[ "$table" =~ ^apm_${UID}_[0-9a-f]{32}$ ]] || return 1
+    command -v python3 >/dev/null || return 2
+    index=$(interface_index "$WG_INTERFACE") || return 1
+    if ! rules=$(run_privileged nft -n -j list table inet "$table" 2>/dev/null); then
+        tables=$(run_privileged nft list tables 2>/dev/null) || return 2
+        grep -Fxq "table inet $table" <<< "$tables" || return 1
+        return 2
+    fi
+    python3 "$PROJECT_ROOT/lib/check_guard.py" "$table" "$UID" "$PROXY_CONNECT_HOST" "$PROXY_PORT" "$index" <<< "$rules"
+}
+
 start_guard() {
     [[ ! -e "$GUARD_FILE" ]] || die "Осталось состояние сетевой защиты; сначала выполните stop"
     local token table index
@@ -26,9 +41,9 @@ stop_guard() {
     read -r table < "$GUARD_FILE" || return 1
     [[ "$table" =~ ^apm_${UID}_[0-9a-f]{32}$ ]] || return 1
     # Do not confuse an authorization failure with an absent table.
-    tables=$(sudo nft list tables) || return 1
+    tables=$(run_privileged nft list tables) || return 1
     if grep -Fxq "table inet $table" <<< "$tables"; then
-        sudo nft delete table inet "$table" || return 1
+        run_privileged nft delete table inet "$table" || return 1
     fi
     rm -f "$GUARD_FILE"
     GUARD_OWNED=0

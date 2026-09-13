@@ -2,6 +2,7 @@
 
 is_ipv4() {
     local value="$1" a b c d extra octet
+    [[ "$value" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
     IFS='.' read -r a b c d extra <<< "$value"
     [[ -z "${extra:-}" && -n "$a" && -n "$b" && -n "$c" && -n "$d" ]] || return 1
     for octet in "$a" "$b" "$c" "$d"; do

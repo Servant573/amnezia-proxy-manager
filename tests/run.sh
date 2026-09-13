@@ -41,10 +41,10 @@ is_ipv4_cidr "203.0.113.0/42" && fail "невалидная маска CIDR пр
 
 printf '%s\n' \
     'WG_INTERFACE=amn-test' \
-    'PRIVATE_KEY="private"' \
+    'PRIVATE_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' \
     'ADDRESS=10.0.0.2/32' \
-    'PUBLIC_KEY=public' \
-    'PRESHARED_KEY=preshared' \
+    'PUBLIC_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' \
+    'PRESHARED_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' \
     'ENDPOINT=198.51.100.1:51820' \
     'PROXY_STRING="203.0.113.1:3128:user:pa:ss"' \
     'WG_MTU=1280' \
@@ -210,5 +210,34 @@ set -e
 assert_eq "143" "$manager_status" "код завершения по TERM"
 [[ -f "${LIFECYCLE_RUNTIME}/cleaned" ]] || fail "cleanup не вызван"
 assert_file_missing "${LIFECYCLE_RUNTIME}/manager.pid"
+
+# TERM during an external startup step is acted on after ownership is recorded.
+AMNEZIA_PROXY_RUNTIME_DIR="${TEST_TMP}/startup-runtime" \
+AMNEZIA_PROXY_STATE_DIR="${TEST_TMP}/startup-state" \
+AMNEZIA_PROXY_CACHE_DIR="${TEST_TMP}/startup-cache" \
+bash -c '
+    source "$1"
+    init_paths
+    do_start() {
+        CONFIG_LOADED=1
+        touch "$RUNTIME_DIR/starting"
+        sleep 0.5
+        TUNNEL_OWNED=1
+    }
+    stop_tunnel() { touch "$RUNTIME_DIR/cleaned"; }
+    log() { :; }
+    run_manager
+' _ "$SCRIPT" &
+startup_process=$!
+for (( attempt=0; attempt<50; attempt++ )); do
+    [[ -f "${TEST_TMP}/startup-runtime/starting" ]] && break
+    sleep 0.02
+done
+kill -TERM "$startup_process"
+startup_status=0
+wait "$startup_process" || startup_status=$?
+assert_eq 143 "$startup_status" "TERM during startup"
+[[ -f "${TEST_TMP}/startup-runtime/cleaned" ]] || fail "startup resource ownership was lost on TERM"
+assert_file_missing "${TEST_TMP}/startup-runtime/manager.pid"
 
 echo "OK: все тесты пройдены"
