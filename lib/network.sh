@@ -59,18 +59,19 @@ parse_endpoint() {
 
 prepare_network_targets() {
     parse_endpoint
+    [[ "$ENDPOINT_HOST" != *:* && "$ENDPOINT" != \[* ]] || die "IPv6 ENDPOINT не поддерживается"
 
     if ! PROXY_IPS=$(resolve_ipv4_host "$PROXY_HOST"); then
         die "Не удалось получить IPv4-адрес upstream-прокси: $PROXY_HOST"
     fi
     PROXY_CONNECT_HOST="${PROXY_IPS%% *}"
 
-    if ENDPOINT_IPS=$(resolve_ipv4_host "$ENDPOINT_HOST"); then
-        :
-    else
-        ENDPOINT_IPS=""
-        log WARN "Не удалось заранее получить IPv4 endpoint $ENDPOINT_HOST; проверка маршрута будет ограничена"
+    if ! ENDPOINT_IPS=$(resolve_ipv4_host "$ENDPOINT_HOST"); then
+        die "Не удалось получить IPv4 endpoint $ENDPOINT_HOST: IPv6-only endpoint не поддерживается"
     fi
+    ENDPOINT_CONNECT_HOST="${ENDPOINT_IPS%% *}"
+    ENDPOINT_IPS="$ENDPOINT_CONNECT_HOST"
+    log INFO "Endpoint $ENDPOINT_HOST закреплён за IPv4 $ENDPOINT_CONNECT_HOST на время запуска"
 
     if [[ "$PROXY_CONNECT_HOST" != "$PROXY_HOST" ]]; then
         log INFO "Upstream $PROXY_HOST закреплён за IPv4 $PROXY_CONNECT_HOST на время запуска"

@@ -72,18 +72,15 @@ validate_config_values() {
     done
     [[ "$ADDRESS" != ,* && "$ADDRESS" != *, && "$ADDRESS" != *,,* ]] || die "Некорректный список ADDRESS"
     for item in ${ADDRESS//,/ }; do
-        if [[ "$item" == *:* ]]; then
-            [[ "$item" == */* ]] && is_ipv6 "${item%/*}" && is_uint_between "${item##*/}" 0 128 || die "ADDRESS: некорректный IPv6 CIDR"
-        else
-            is_ipv4_cidr "$item" || die "ADDRESS: некорректный IPv4 CIDR"
-        fi
+        is_ipv4_cidr "$item" || die "ADDRESS: поддерживаются только IPv4 CIDR"
     done
     [[ "$DNS" != ,* && "$DNS" != *, && "$DNS" != *,,* ]] || die "Некорректный список DNS"
     for item in ${DNS//,/ }; do
         is_ipv4 "$item" || die "DNS: поддерживаются только IPv4-адреса (или пустое значение)"
     done
     parse_endpoint
-    if [[ "$ENDPOINT_HOST" == *:* ]]; then is_ipv6 "$ENDPOINT_HOST"; else is_host "$ENDPOINT_HOST"; fi || die "Некорректный адрес ENDPOINT"
+    [[ "$ENDPOINT" != \[* && "$ENDPOINT_HOST" != *:* ]] || die "IPv6 ENDPOINT не поддерживается: используйте IPv4 или hostname с A-записью"
+    is_host "$ENDPOINT_HOST" || die "Некорректный адрес ENDPOINT"
     is_uint_between "$ENDPOINT_PORT" 1 65535 || die "ENDPOINT: порт должен быть от 1 до 65535"
     IFS=: read -r PROXY_HOST PROXY_PORT PROXY_USER PROXY_PASS <<< "$PROXY_STRING"
     is_host "$PROXY_HOST" || die "Некорректный адрес upstream (IPv4 или hostname)"
@@ -109,6 +106,7 @@ validate_config_values() {
     done
     [[ "$WG_MTU" == auto ]] || is_uint_between "$WG_MTU" 576 9000 || die "WG_MTU должен быть auto или от 576 до 9000"
     [[ "$STARTUP_HEALTHCHECK" == off || "$STARTUP_HEALTHCHECK" == warn || "$STARTUP_HEALTHCHECK" == strict ]] || die "STARTUP_HEALTHCHECK: ожидается off, warn или strict"
+    [[ "$BLOCK_IPV6" == on || "$BLOCK_IPV6" == off ]] || die "BLOCK_IPV6: ожидается on или off"
     is_https_url "$HEALTHCHECK_URL" || die "HEALTHCHECK_URL: ожидается корректный HTTPS URL без userinfo"
     is_uint_between "$PROXY_PARENT_RETRIES" 1 10 || die "PROXY_PARENT_RETRIES должен быть от 1 до 10"
     [[ -z "$PROXY_MAXSEG" ]] || is_uint_between "$PROXY_MAXSEG" 536 8960 || die "PROXY_MAXSEG должен быть от 536 до 8960"

@@ -36,7 +36,7 @@ diagnose_runtime() {
     load_config >/dev/null
     echo '=== Состояние VPN/proxy ==='
     if ! is_manager_running && ! is_proxy_running && ! is_tunnel_up &&
-        [[ ! -e "$MANAGER_PID_FILE" && ! -e "$PID_FILE" && ! -e "$TUNNEL_OWNER_FILE" && ! -e "$GUARD_FILE" ]]; then
+        [[ ! -e "$MANAGER_PID_FILE" && ! -e "$PID_FILE" && ! -e "$TUNNEL_OWNER_FILE" && ! -e "$GUARD_FILE" && ! -e "$IPV6_GUARD_FILE" ]]; then
         echo 'Менеджер: STOPPED; туннель: DOWN; 3proxy: STOPPED'
         return 3
     fi
@@ -107,12 +107,28 @@ diagnose_runtime() {
         fi
     fi
 
+    if [[ "$BLOCK_IPV6" == off && ! -e "$IPV6_GUARD_FILE" ]]; then
+        echo 'IPv6: OFF — менеджер не обеспечивает блокировку прямого IPv6'
+        unknown=$((unknown + 1))
+    elif ipv6_block_active; then
+        echo 'IPv6: BLOCKED — правило REJECT вне loopback проверено'
+    else
+        guard_status=$?
+        if (( guard_status == 2 )); then
+            echo 'IPv6: UNKNOWN — проверка nftables недоступна'
+            unknown=$((unknown + 1))
+        else
+            echo 'IPv6: FAIL — блокировка отсутствует или изменена'
+            failures=$((failures + 1))
+        fi
+    fi
+
     # Inspect the peer's actual endpoint, not a fresh DNS answer.
     if (( owned )) && endpoint_output=$(run_privileged awg show "$WG_INTERFACE" endpoints 2>/dev/null); then
         actual_endpoint=$(awk -v key="$PUBLIC_KEY" '$1 == key {print $2; exit}' <<< "$endpoint_output")
         if [[ "$actual_endpoint" =~ ^\[([^]]+)\]:([0-9]+)$ ]]; then
-            ENDPOINT_HOST="${BASH_REMATCH[1]}"; ENDPOINT_PORT="${BASH_REMATCH[2]}"
-            route=$(ip -6 route get "$ENDPOINT_HOST" 2>/dev/null || true)
+            echo 'Endpoint: IPv6 не поддерживается; перезапустите соединение с IPv4'
+            route=""
             ENDPOINT_IPS=""
         elif [[ "$actual_endpoint" =~ ^([0-9.]+):([0-9]+)$ ]]; then
             ENDPOINT_HOST="${BASH_REMATCH[1]}"; ENDPOINT_PORT="${BASH_REMATCH[2]}"

@@ -62,6 +62,7 @@ rm "$PID_FILE"
 if (
     load_config() { :; }
     check_deps() { :; }
+    block_ipv6() { :; }
     prepare_network_targets() { :; }
     build_allowed_ips() { :; }
     start_tunnel() { :; }

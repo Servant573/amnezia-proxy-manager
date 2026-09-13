@@ -15,6 +15,10 @@ PERSISTENTKEEPALIVE=25
 # Число задаёт фиксированный MTU, например WG_MTU=1390.
 WG_MTU=auto
 
+# Блокировать исходящий IPv6 всех локальных процессов, кроме loopback.
+# off — отключить эту защиту (IPv6 endpoint всё равно не поддерживается).
+BLOCK_IPV6=on
+
 # Параметры обфускации AmneziaWG
 Jc=4
 Jmin=40

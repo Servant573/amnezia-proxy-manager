@@ -49,8 +49,10 @@ do_start() {
     load_config
     check_stop_requested
     check_deps
-    [[ ! -e "$TUNNEL_OWNER_FILE" && ! -e "$GUARD_FILE" && ! -e "$PID_FILE" ]] \
+    [[ ! -e "$TUNNEL_OWNER_FILE" && ! -e "$GUARD_FILE" && ! -e "$PID_FILE" && ! -e "$IPV6_GUARD_FILE" ]] \
         || die "Осталось состояние предыдущего запуска; сначала выполните stop"
+    block_ipv6 || die "Не удалось установить обязательную IPv6-защиту"
+    check_stop_requested
     prepare_network_targets
     check_stop_requested
     ensure_proxy_ports_available
@@ -86,6 +88,7 @@ stop_components() {
     stop_proxy || return 1
     stop_tunnel || return 1
     stop_guard || return 1
+    unblock_ipv6 || return 1
     log OK "Всё остановлено"
 }
 
@@ -134,8 +137,12 @@ cleanup() {
         # Keep the guard if the process cannot be confirmed stopped.
         if [[ "$PROXY_OWNED" == 0 ]] || stop_proxy; then
             if [[ "$TUNNEL_OWNED" == 0 ]] || stop_tunnel; then
-                if [[ "$GUARD_OWNED" == 1 ]]; then
-                    stop_guard || log ERR "Сетевая защита сохранена; повторите stop"
+                if [[ "$GUARD_OWNED" == 0 ]] || stop_guard; then
+                    if [[ "$IPV6_OWNED" == 1 ]]; then
+                        unblock_ipv6 || log ERR "IPv6-защита сохранена; повторите stop"
+                    fi
+                else
+                    log ERR "Сетевая защита сохранена; повторите stop"
                 fi
             else
                 log ERR "Очистка туннеля не завершена; состояние и защита сохранены"

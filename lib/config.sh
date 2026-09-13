@@ -22,7 +22,7 @@ strip_quotes() {
 CONFIG_KEYS='WG_INTERFACE PRIVATE_KEY ADDRESS DNS PUBLIC_KEY ENDPOINT PERSISTENTKEEPALIVE
 Jc Jmin Jmax S1 S2 S3 S4 H1 H2 H3 H4 I1 I2 I3 I4 I5 PRESHARED_KEY
 PROXY_STRING LOCAL_HTTP_PORT LOCAL_SOCKS_PORT IPLIST_URLS WG_MTU
-HEALTHCHECK_URL STARTUP_HEALTHCHECK PROXY_MAXSEG PROXY_PARENT_RETRIES'
+HEALTHCHECK_URL STARTUP_HEALTHCHECK PROXY_MAXSEG PROXY_PARENT_RETRIES BLOCK_IPV6'
 
 load_config() {
     [[ -f "$CONFIG_FILE" ]] || die "Конфиг не найден: $CONFIG_FILE"
@@ -41,7 +41,7 @@ load_config() {
     local -A seen=()
     CONFIG_LOADED=0
     for key in $CONFIG_KEYS; do unset "$key"; done
-    PROXY_IPS=""; PROXY_CONNECT_HOST=""; ENDPOINT_IPS=""
+    PROXY_IPS=""; PROXY_CONNECT_HOST=""; ENDPOINT_IPS=""; ENDPOINT_CONNECT_HOST=""
     while IFS= read -r line || [[ -n "$line" ]]; do
         number=$((number + 1))
         line=$(trim "$line")
@@ -93,6 +93,7 @@ load_config() {
     : "${STARTUP_HEALTHCHECK:=warn}"
     : "${PROXY_MAXSEG:=}"
     : "${PROXY_PARENT_RETRIES:=2}"
+    : "${BLOCK_IPV6:=on}"
 
     validate_config_values
 

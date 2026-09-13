@@ -23,6 +23,8 @@ is_tunnel_up() {
 
 generate_wg_config() {
     log INFO "Генерирую временный конфиг AmneziaWG"
+    local endpoint_ip="${ENDPOINT_CONNECT_HOST:-${ENDPOINT_HOST:-}}"
+    is_ipv4 "$endpoint_ip" || die "IPv4 endpoint не подготовлен; генерация AWG-конфига запрещена"
 
     {
         cat <<EOF
@@ -58,7 +60,7 @@ EOF
 
 [Peer]
 PublicKey = ${PUBLIC_KEY}
-Endpoint = ${ENDPOINT}
+Endpoint = ${endpoint_ip}:${ENDPOINT_PORT}
 AllowedIPs = ${ALLOWED_IPS}
 PersistentKeepalive = ${PERSISTENTKEEPALIVE}
 EOF
@@ -79,7 +81,9 @@ route_uses_interface() {
 
 verify_tunnel_routes() {
     local ip route
+    [[ -n "${ENDPOINT_IPS:-}" ]] || die "IPv4 endpoint не определён; проверку маршрута нельзя пропустить"
     for ip in ${ENDPOINT_IPS:-}; do
+        is_ipv4 "$ip" || die "Проверка маршрута требует IPv4 endpoint"
         route=$(route_for_ipv4 "$ip") || die "Нет маршрута к endpoint $ip"
         if route_uses_interface "$route" "$WG_INTERFACE"; then
             die "Маршрут к endpoint $ip попал в $WG_INTERFACE — обнаружена VPN-петля"

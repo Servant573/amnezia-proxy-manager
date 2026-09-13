@@ -39,6 +39,7 @@ LOCK_FILE="${RUNTIME_DIR}/manager.lock"
 ALLOWED_IPS_CACHE="${CACHE_DIR}/allowed_ips.txt"
 TUNNEL_OWNER_FILE="${RUNTIME_DIR}/tunnel.owner"
 GUARD_FILE="${RUNTIME_DIR}/guard.owner"
+IPV6_GUARD_FILE="${RUNTIME_DIR}/ipv6.owner"
 
 secure_directory() {
     local path="$1" current="/" part owner mode root_owner

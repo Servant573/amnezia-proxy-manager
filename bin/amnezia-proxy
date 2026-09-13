@@ -20,6 +20,7 @@ source "${PROJECT_ROOT}/lib/proxy.sh"
 # shellcheck source=../lib/tunnel.sh
 source "${PROJECT_ROOT}/lib/tunnel.sh"
 source "${PROJECT_ROOT}/lib/guard.sh"
+source "${PROJECT_ROOT}/lib/ipv6.sh"
 # shellcheck source=../lib/manager.sh
 source "${PROJECT_ROOT}/lib/manager.sh"
 source "${PROJECT_ROOT}/lib/diagnostics.sh"

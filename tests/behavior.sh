@@ -28,13 +28,15 @@ for spec in 'LOCAL_HTTP_PORT=0' 'LOCAL_SOCKS_PORT=65536' 'LOCAL_HTTP_PORT=8080' 
     'Jmin=71' 'S4=-1' 'H1=2' 'H1=10-2' 'H1=4294967296' 'H1=1-1-1' \
     'HEALTHCHECK_URL=https://' 'HEALTHCHECK_URL=http://example.test' \
     'IPLIST_URLS=https://good.test http://bad.test' 'TYPO=ignored' \
-    'PROXY_STRING=203.0.113.7.:3128:user:pass' 'PERSISTENTKEEPALIVE=65536'; do
+    'PROXY_STRING=203.0.113.7.:3128:user:pass' 'PERSISTENTKEEPALIVE=65536' \
+    'ADDRESS=10.0.0.2/32,2001:db8::1/64' 'ADDRESS=::1/128' \
+    'ENDPOINT=[::ffff:192.0.2.1]:51820' 'BLOCK_IPV6=maybe'; do
     config_with "$spec"
     if "$cli" config validate > "$TEST_TMP/result" 2>&1; then fail "invalid value accepted: ${spec%%=*}"; fi
     if grep -q secret-marker "$TEST_TMP/result"; then fail 'secret in validation error'; fi
 done
-for spec in 'ADDRESS=10.0.0.2/32,2001:db8::1/64' 'ADDRESS=::1/128' \
-    'ENDPOINT=[::ffff:192.0.2.1]:51820' 'H1=10-20' 'PRESHARED_KEY='; do
+for spec in 'ADDRESS=10.0.0.2/32,10.0.0.3/32' 'BLOCK_IPV6=on' \
+    'BLOCK_IPV6=off' 'H1=10-20' 'PRESHARED_KEY='; do
     config_with "$spec"
     "$cli" config validate >/dev/null || fail "valid value rejected: $spec"
 done
@@ -88,6 +90,8 @@ route_for_ipv4() {
 }
 DIAG_GUARD_STATUS=0
 guard_is_active() { return "$DIAG_GUARD_STATUS"; }
+DIAG_IPV6_STATUS=0
+ipv6_block_active() { return "$DIAG_IPV6_STATUS"; }
 HANDSHAKE=$(date +%s)
 run_privileged() {
     case "$*" in
@@ -110,6 +114,17 @@ DIAG_GUARD_STATUS=1
 result=0; do_status >/dev/null || result=$?
 [[ "$result" == 1 ]] || fail 'broken guard reported healthy'
 DIAG_GUARD_STATUS=0
+DIAG_IPV6_STATUS=1
+result=0; do_status >/dev/null || result=$?
+[[ "$result" == 1 ]] || fail 'missing IPv6 block reported healthy'
+DIAG_IPV6_STATUS=2
+result=0; do_status >/dev/null || result=$?
+[[ "$result" == 2 ]] || fail 'unknown IPv6 block reported healthy'
+DIAG_IPV6_STATUS=0
+config_with 'BLOCK_IPV6=off'
+result=0; do_status >/dev/null || result=$?
+[[ "$result" == 2 ]] || fail 'IPv6 opt-out reported fully protected'
+config_with 'LOCAL_HTTP_PORT=8181'
 HANDSHAKE=$(($(date +%s) - 300))
 result=0; do_status >/dev/null || result=$?
 [[ "$result" == 1 ]] || fail 'stale handshake accepted'

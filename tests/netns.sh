@@ -13,6 +13,7 @@ TEST_TMP=$(mktemp -d)
 trap 'rm -rf -- "$TEST_TMP"' EXIT
 export AMNEZIA_PROXY_RUNTIME_DIR="$TEST_TMP"
 source "$PROJECT_ROOT/bin/amnezia-proxy"
+LOG_FILE="$TEST_TMP/manager.log"
 sudo() { [[ "$1" != -n ]] || shift; "$@"; }
 WG_INTERFACE=vpn-audit
 PROXY_CONNECT_HOST=198.18.0.1
@@ -50,3 +51,53 @@ status=0; guard_is_active || status=$?
 stop_guard
 [[ ! -e "$GUARD_FILE" ]] || exit 1
 echo 'OK: kernel blocks underlay and replacement interface; permits VPN output'
+
+# IPv6 has a real route before blocking; failure cannot be attributed to an
+# absent AAAA answer or absent IPv6 connectivity. Everything stays in this netns.
+ip link set lo up
+ip -6 addr add 2001:db8:1::2/64 dev wan-audit nodad
+ip -6 route get 2001:db8:1::1 >/dev/null
+probe6() {
+    python3 -c 'import socket; s=socket.socket(socket.AF_INET6, socket.SOCK_DGRAM); s.sendto(b"audit", ("2001:db8:1::1", 3128))' 2>/dev/null
+}
+probe6 || { echo 'IPv6 baseline unavailable'; exit 1; }
+nft add table ip6 audit_unrelated
+BLOCK_IPV6=on
+block_ipv6
+ipv6_table=$(<"$IPV6_GUARD_FILE")
+ipv6_block_active || { nft -n -j list table ip6 "$ipv6_table"; echo 'IPv6 rule not recognized'; exit 1; }
+if probe6; then echo 'IPv6 bypassed block'; exit 1; fi
+python3 -c '
+import socket
+with socket.socket(socket.AF_INET6, socket.SOCK_DGRAM) as server:
+    server.bind(("::1", 0)); server.settimeout(1)
+    with socket.socket(socket.AF_INET6, socket.SOCK_DGRAM) as client:
+        client.sendto(b"loopback", server.getsockname())
+    assert server.recv(100) == b"loopback"
+'
+BLOCK_IPV6=off
+unblock_ipv6  # changing the config must not disable cleanup of an owned rule
+probe6 || { echo 'IPv6 was not restored'; exit 1; }
+nft list table ip6 audit_unrelated >/dev/null
+
+# A killed installer leaves recoverable protection, not a silently open path.
+BLOCK_IPV6=on
+(
+    block_ipv6 >/dev/null
+    kill -KILL "$BASHPID"
+) &
+installer=$!
+result=0; wait "$installer" 2>/dev/null || result=$?
+[[ "$result" == 137 ]] || exit 1
+ipv6_block_active
+if probe6; then echo 'SIGKILL removed IPv6 protection'; exit 1; fi
+ipv6_table=$(<"$IPV6_GUARD_FILE")
+nft flush chain ip6 "$ipv6_table" output
+if ipv6_block_active; then echo 'Empty IPv6 table accepted'; exit 1; fi
+unblock_ipv6
+probe6
+BLOCK_IPV6=off
+block_ipv6
+[[ ! -e "$IPV6_GUARD_FILE" ]] || exit 1
+nft list table ip6 audit_unrelated >/dev/null
+echo 'OK: IPv6 REJECT, loopback, SIGKILL recovery, opt-out and unrelated rules verified'
