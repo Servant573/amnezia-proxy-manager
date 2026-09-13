@@ -37,8 +37,49 @@ PID_FILE="${RUNTIME_DIR}/3proxy.pid"
 MANAGER_PID_FILE="${RUNTIME_DIR}/manager.pid"
 LOCK_FILE="${RUNTIME_DIR}/manager.lock"
 ALLOWED_IPS_CACHE="${CACHE_DIR}/allowed_ips.txt"
+TUNNEL_OWNER_FILE="${RUNTIME_DIR}/tunnel.owner"
+GUARD_FILE="${RUNTIME_DIR}/guard.owner"
+
+secure_directory() {
+    local path="$1" current="/" part owner mode root_owner
+    root_owner=$(stat -c %u /) || return 1
+    [[ "$path" == /* && "$path" != / ]] || { echo "Требуется абсолютный путь каталога: $path" >&2; return 1; }
+    local -a parts
+    IFS=/ read -r -a parts <<< "$path"
+    for part in "${parts[@]}"; do
+        [[ -n "$part" ]] || continue
+        [[ "$part" != . && "$part" != .. ]] || return 1
+        current="${current%/}/$part"
+        [[ ! -L "$current" ]] || { echo "Симлинк в пути запрещён: $current" >&2; return 1; }
+        if [[ ! -e "$current" ]]; then
+            mkdir -m 700 -- "$current" || return 1
+        fi
+        [[ -d "$current" ]] || return 1
+        owner=$(stat -c %u -- "$current") || return 1
+        mode=$(stat -c %a -- "$current") || return 1
+        [[ "$owner" == "$UID" || "$owner" == "$root_owner" ]] || { echo "Чужой владелец: $current" >&2; return 1; }
+        # Shared parents such as /tmp must be root-owned and sticky.
+        if (( (8#$mode & 0022) != 0 )); then
+            [[ "$current" != "${path%/}" && "$owner" == "$root_owner" ]] && (( (8#$mode & 01000) != 0 )) || {
+                echo "Небезопасные права каталога: $current" >&2; return 1;
+            }
+        fi
+    done
+    [[ "$(stat -c %u -- "$path")" == "$UID" ]] || return 1
+    chmod 700 -- "$path" || return 1
+}
 
 init_paths() {
-    mkdir -p "$STATE_DIR" "$CACHE_DIR" "$RUNTIME_DIR"
-    chmod 700 "$STATE_DIR" "$CACHE_DIR" "$RUNTIME_DIR" 2>/dev/null || true
+    local path entry
+    for path in "$RUNTIME_DIR" "$STATE_DIR" "$CACHE_DIR"; do
+        secure_directory "$path" || return 1
+        # These directories are private; reject pre-existing links/devices and
+        # hard-linked files before any redirection can overwrite their targets.
+        while IFS= read -r -d '' entry; do
+            [[ ! -L "$entry" && -f "$entry" && -O "$entry" ]] &&
+                [[ "$(stat -c %h -- "$entry")" == 1 ]] || {
+                    echo "Небезопасный файл: $entry" >&2; return 1;
+                }
+        done < <(find "$path" -mindepth 1 -maxdepth 1 -print0)
+    done
 }

@@ -9,6 +9,7 @@ check_deps() {
     command -v flock  >/dev/null 2>&1 || die "flock не найден (обычно входит в util-linux)"
     command -v getent >/dev/null 2>&1 || die "getent не найден (обычно входит в libc-bin)"
     command -v ss     >/dev/null 2>&1 || die "ss не найден (обычно входит в iproute2)"
+    command -v nft    >/dev/null 2>&1 || die "nft не найден; установите nftables"
 }
 
 http_proxy_healthy() {
@@ -37,9 +38,12 @@ do_start() {
     log INFO "========== ЗАПУСК =========="
     load_config
     check_deps
+    [[ ! -e "$TUNNEL_OWNER_FILE" && ! -e "$GUARD_FILE" && ! -e "$PID_FILE" ]] \
+        || die "Осталось состояние предыдущего запуска; сначала выполните stop"
     prepare_network_targets
     build_allowed_ips
     start_tunnel
+    start_guard || die "Не удалось установить обязательную сетевую защиту"
     start_proxy
     run_startup_healthcheck
 
@@ -58,8 +62,9 @@ do_start() {
 
 stop_components() {
     log INFO "========== ОСТАНОВКА =========="
-    stop_proxy
-    stop_tunnel
+    stop_proxy || return 1
+    stop_tunnel || return 1
+    stop_guard || return 1
     log OK "Всё остановлено"
 }
 
@@ -71,6 +76,12 @@ do_stop() {
     local manager_pid=""
     if is_manager_running; then
         manager_pid=$(read_pid "$MANAGER_PID_FILE")
+    else
+        local unverified_pid
+        if unverified_pid=$(read_pid "$MANAGER_PID_FILE") && kill -0 "$unverified_pid" 2>/dev/null; then
+            release_lock
+            die "Живой PID менеджера не удалось идентифицировать; остановка запрещена"
+        fi
     fi
 
     if [[ -n "$manager_pid" && "$manager_pid" != "$$" ]]; then
@@ -88,7 +99,7 @@ do_stop() {
     fi
 
     rm -f "$MANAGER_PID_FILE"
-    stop_components
+    stop_components || { release_lock; die "Остановка не завершена; состояние сохранено для повторного stop"; }
     release_lock
 }
 
@@ -286,14 +297,26 @@ cleanup() {
         return
     fi
     CLEANUP_DONE=1
-    release_lock
     if [[ "$CONFIG_LOADED" == "1" ]]; then
         log WARN "Менеджер завершает работу, останавливаю сервисы..."
-        stop_components
+        # Startup failure must not adopt resources from a previous session.
+        # Keep the guard if the process cannot be confirmed stopped.
+        if [[ "$PROXY_OWNED" == 0 ]] || stop_proxy; then
+            if [[ "$TUNNEL_OWNED" == 0 ]] || stop_tunnel; then
+                if [[ "$GUARD_OWNED" == 1 ]]; then
+                    stop_guard || log ERR "Сетевая защита сохранена; повторите stop"
+                fi
+            else
+                log ERR "Очистка туннеля не завершена; состояние и защита сохранены"
+            fi
+        else
+            log ERR "3proxy не остановлен; сетевая защита сохранена"
+        fi
     fi
     if [[ "$(read_pid "$MANAGER_PID_FILE" 2>/dev/null || true)" == "$$" ]]; then
         rm -f "$MANAGER_PID_FILE"
     fi
+    release_lock
 }
 
 run_manager() {
@@ -304,9 +327,14 @@ run_manager() {
         release_lock
         die "Менеджер уже запущен (PID $pid)"
     fi
+    local unverified_pid
+    if unverified_pid=$(read_pid "$MANAGER_PID_FILE") && kill -0 "$unverified_pid" 2>/dev/null; then
+        release_lock
+        die "Живой PID менеджера не удалось идентифицировать; состояние сохранено"
+    fi
 
     rm -f "$MANAGER_PID_FILE"
-    printf '%s\n' "$$" > "$MANAGER_PID_FILE"
+    write_process_record "$MANAGER_PID_FILE" "$$"
     trap cleanup EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM

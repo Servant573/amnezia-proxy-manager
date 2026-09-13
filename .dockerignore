@@ -1,0 +1,9 @@
+**
+!amnezia-proxy-manager
+!config.example
+!bin/
+!bin/**
+!lib/
+!lib/**
+!tests/
+!tests/**

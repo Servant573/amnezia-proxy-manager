@@ -95,10 +95,14 @@ load_config() {
     : "${PROXY_PARENT_RETRIES:=2}"
 
     validate_transport_config
+    [[ "$WG_INTERFACE" =~ ^[a-zA-Z0-9_=+.-]{1,15}$ && "$WG_INTERFACE" != . && "$WG_INTERFACE" != .. ]] \
+        || die "Недопустимое имя WG_INTERFACE"
 
     IFS=':' read -r PROXY_HOST PROXY_PORT PROXY_USER PROXY_PASS <<< "$PROXY_STRING"
     [[ -n "$PROXY_HOST" && -n "$PROXY_PORT" && -n "$PROXY_USER" && -n "$PROXY_PASS" ]] \
         || die "Не удалось распарсить PROXY_STRING. Ожидается host:port:user:pass"
+    [[ "$PROXY_PORT" =~ ^[1-9][0-9]{0,4}$ ]] && (( PROXY_PORT <= 65535 )) \
+        || die "Порт upstream должен быть от 1 до 65535"
 
     WG_TMP_CONF="${RUNTIME_DIR}/${WG_INTERFACE}.conf"
     CONFIG_LOADED=1

@@ -1,5 +1,15 @@
 #!/bin/bash
 
+TUNNEL_OWNED=0
+
+interface_index() {
+    local line index
+    line=$(ip -o link show dev "$1") || return 1
+    index="${line%%:*}"
+    [[ "$index" =~ ^[0-9]+$ ]] || return 1
+    printf '%s' "$index"
+}
+
 check_tunnel_deps() {
     command -v awg-quick >/dev/null 2>&1 || die "awg-quick не найден. Установи amneziawg-tools"
     command -v awg       >/dev/null 2>&1 || die "awg не найден. Установи amneziawg-tools"
@@ -113,12 +123,9 @@ effective_tunnel_mtu() {
 }
 
 start_tunnel() {
+    [[ ! -e "$TUNNEL_OWNER_FILE" ]] || die "Осталось состояние туннеля; сначала выполните stop"
     if is_tunnel_up; then
-        log WARN "Интерфейс $WG_INTERFACE уже существует — останавливаю..."
-        sudo awg-quick down "$WG_TMP_CONF" 2>/dev/null || true
-        sudo awg-quick down "$WG_INTERFACE" 2>/dev/null || true
-        sudo ip link delete "$WG_INTERFACE" 2>/dev/null || true
-        sleep 0.8
+        die "Интерфейс $WG_INTERFACE уже существует и не будет изменён"
     fi
 
     generate_wg_config
@@ -126,6 +133,11 @@ start_tunnel() {
     if ! sudo awg-quick up "$WG_TMP_CONF"; then
         die "awg-quick up завершился с ошибкой"
     fi
+    local index boot
+    index=$(interface_index "$WG_INTERFACE")
+    boot=$(cat /proc/sys/kernel/random/boot_id)
+    printf '%s %s %s\n' "$WG_INTERFACE" "$index" "$boot" > "$TUNNEL_OWNER_FILE"
+    TUNNEL_OWNED=1
 
     sleep 1
     if is_tunnel_up; then
@@ -137,10 +149,27 @@ start_tunnel() {
 }
 
 stop_tunnel() {
+    [[ -f "$TUNNEL_OWNER_FILE" ]] || return 0
+    local owned_interface owned_index owned_boot current_index
+    read -r owned_interface owned_index owned_boot < "$TUNNEL_OWNER_FILE" || return 1
+    [[ "$owned_interface" =~ ^[a-zA-Z0-9_=+.-]{1,15}$ && "$owned_index" =~ ^[0-9]+$ ]] || return 1
+    [[ "$owned_boot" == "$(cat /proc/sys/kernel/random/boot_id)" ]] || {
+        log ERR "Состояние туннеля от другой загрузки; интерфейс не тронут"; return 1;
+    }
+    WG_INTERFACE="$owned_interface"
+    WG_TMP_CONF="${RUNTIME_DIR}/${owned_interface}.conf"
+    if is_tunnel_up; then
+        current_index=$(interface_index "$WG_INTERFACE") || return 1
+        [[ "$current_index" == "$owned_index" ]] || {
+            log ERR "Интерфейс $WG_INTERFACE заменён другим; удаление запрещено"; return 1;
+        }
+    fi
     log INFO "Останавливаю туннель $WG_INTERFACE..."
-    sudo awg-quick down "$WG_TMP_CONF" 2>/dev/null || true
-    sudo awg-quick down "$WG_INTERFACE" 2>/dev/null || true
-    sudo ip link delete "$WG_INTERFACE" 2>/dev/null || true
-    rm -f "$WG_TMP_CONF"
+    if is_tunnel_up; then
+        sudo awg-quick down "$WG_TMP_CONF" || return 1
+        ! is_tunnel_up || return 1
+    fi
+    rm -f "$WG_TMP_CONF" "$TUNNEL_OWNER_FILE"
+    TUNNEL_OWNED=0
     log OK "Туннель остановлен"
 }

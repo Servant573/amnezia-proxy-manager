@@ -76,6 +76,7 @@ generate_proxy_config
 grep -q '^timeouts 1 5 30 60 180 1800 15 60 15 5$' "$PROXY_CFG" || fail "неполный набор timeout 3proxy"
 grep -q '^parent 1000 http 203.0.113.77 ' "$PROXY_CFG" || fail "HTTP parent не закреплён за IPv4"
 grep -q '^fakeresolve$' "$PROXY_CFG" || fail "SOCKS DNS не переведён на upstream"
+grep -q '^allow \* 127.0.0.1 \* \* CONNECT$' "$PROXY_CFG" || fail "SOCKS должен разрешать только TCP CONNECT"
 grep -q '^parent 1000 connect+ 203.0.113.77 ' "$PROXY_CFG" || fail "SOCKS не использует CONNECT+ parent"
 grep -q '^maxseg 1350$' "$PROXY_CFG" || fail "PROXY_MAXSEG не попал в конфиг"
 PROXY_MAXSEG=""
@@ -189,8 +190,8 @@ bash -c '
     set -euo pipefail
     source "$1"
     init_paths
-    do_start() { CONFIG_LOADED=1; }
-    stop_components() { printf cleanup > "$RUNTIME_DIR/cleaned"; }
+    do_start() { CONFIG_LOADED=1; TUNNEL_OWNED=1; }
+    stop_tunnel() { printf cleanup > "$RUNTIME_DIR/cleaned"; }
     log() { :; }
     run_manager
 ' _ "$SCRIPT" &

@@ -2,6 +2,30 @@
 
 LOCK_FD=""
 
+process_identity() {
+    local pid="$1" stat_line
+    local -a fields
+    [[ -r "/proc/$pid/stat" ]] || return 1
+    stat_line=$(<"/proc/$pid/stat")
+    # comm may contain spaces and parentheses; the final ')' closes it.
+    read -r -a fields <<< "${stat_line##*) }"
+    [[ "${fields[19]:-}" =~ ^[0-9]+$ ]] || return 1
+    printf '%s:%s' "$(cat /proc/sys/kernel/random/boot_id)" "${fields[19]}"
+}
+
+write_process_record() {
+    local file="$1" pid="$2" identity
+    identity=$(process_identity "$pid") || return 1
+    printf '%s\n%s\n' "$pid" "$identity" > "$file"
+}
+
+process_record_matches() {
+    local file="$1" pid="$2" recorded actual
+    recorded=$(sed -n '2p' "$file") || return 1
+    actual=$(process_identity "$pid") || return 1
+    [[ -n "$recorded" && "$recorded" == "$actual" ]]
+}
+
 read_pid() {
     local file="$1" pid
     [[ -r "$file" ]] || return 1
@@ -37,5 +61,6 @@ is_manager_running() {
     local pid
     pid=$(read_pid "$MANAGER_PID_FILE") || return 1
     kill -0 "$pid" 2>/dev/null \
+        && process_record_matches "$MANAGER_PID_FILE" "$pid" \
         && process_cmdline_contains "$pid" "amnezia-proxy"
 }

@@ -18,6 +18,7 @@ source "${PROJECT_ROOT}/lib/network.sh"
 source "${PROJECT_ROOT}/lib/proxy.sh"
 # shellcheck source=../lib/tunnel.sh
 source "${PROJECT_ROOT}/lib/tunnel.sh"
+source "${PROJECT_ROOT}/lib/guard.sh"
 # shellcheck source=../lib/manager.sh
 source "${PROJECT_ROOT}/lib/manager.sh"
 

@@ -1,9 +1,12 @@
 #!/bin/bash
 
+PROXY_OWNED=0
+
 is_proxy_running() {
     local pid
     pid=$(read_pid "$PID_FILE") || return 1
     kill -0 "$pid" 2>/dev/null \
+        && process_record_matches "$PID_FILE" "$pid" \
         && process_cmdline_contains "$pid" "3proxy" \
         && process_cmdline_contains "$pid" "$PROXY_CFG"
 }
@@ -87,7 +90,7 @@ proxy -p${LOCAL_HTTP_PORT} -i127.0.0.1${socket_options}
 flush
 fakeresolve
 auth iponly
-allow * 127.0.0.1
+allow * 127.0.0.1 * * CONNECT
 parent 1000 connect+ ${parent_host} ${PROXY_PORT} ${PROXY_USER} ${PROXY_PASS}
 socks -p${LOCAL_SOCKS_PORT} -i127.0.0.1${socket_options}
 EOF
@@ -97,8 +100,7 @@ EOF
 
 start_proxy() {
     if is_proxy_running; then
-        log WARN "3proxy уже запущен (PID $(read_pid "$PID_FILE"))"
-        return 0
+        die "3proxy уже запущен; сначала выполните stop"
     fi
     rm -f "$PID_FILE"
 
@@ -106,7 +108,14 @@ start_proxy() {
     generate_proxy_config
     log INFO "Запускаю 3proxy..."
     3proxy "$PROXY_CFG" &
-    echo $! > "$PID_FILE"
+    local proxy_pid=$!
+    if ! write_process_record "$PID_FILE" "$proxy_pid"; then
+        # It is our own child, not a PID recovered from disk.
+        kill "$proxy_pid" 2>/dev/null || true
+        wait "$proxy_pid" 2>/dev/null || true
+        die "Не удалось сохранить идентификатор процесса 3proxy"
+    fi
+    PROXY_OWNED=1
     sleep 1.2
 
     if is_proxy_ready; then
@@ -119,12 +128,26 @@ start_proxy() {
 
 stop_proxy() {
     if is_proxy_running; then
-        local pid
+        local pid attempt
         pid=$(read_pid "$PID_FILE")
         kill "$pid" 2>/dev/null || true
+        for (( attempt=0; attempt<30; attempt++ )); do
+            is_proxy_running || break
+            sleep 0.1
+        done
+        if is_proxy_running; then
+            log ERR "3proxy не завершился; PID и сетевая защита сохранены"
+            return 1
+        fi
         rm -f "$PID_FILE"
         log OK "3proxy остановлен"
     else
+        local unverified_pid
+        if unverified_pid=$(read_pid "$PID_FILE") && kill -0 "$unverified_pid" 2>/dev/null; then
+            log ERR "PID $unverified_pid существует, но принадлежность не подтверждена; процесс не тронут"
+            return 1
+        fi
         rm -f "$PID_FILE"
     fi
+    PROXY_OWNED=0
 }
