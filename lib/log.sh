@@ -36,3 +36,22 @@ die() {
     log ERR "$*"
     exit 1
 }
+
+prepare_log_for_follow() {
+    local path="$1"
+    if [[ ! -e "$path" ]]; then
+        ( umask 077; : > "$path" ) || return 1
+    fi
+    [[ ! -L "$path" && -f "$path" && -O "$path" ]] || return 1
+    [[ "$(stat -c %h -- "$path")" == 1 ]] || return 1
+    chmod 600 -- "$path"
+}
+
+do_logs() {
+    command -v tail >/dev/null 2>&1 || die "tail не найден (обычно входит в coreutils)"
+    prepare_log_for_follow "$LOG_FILE" || die "Небезопасный файл лога: $LOG_FILE"
+    prepare_log_for_follow "$PROXY_LOG_FILE" || die "Небезопасный файл лога: $PROXY_LOG_FILE"
+    printf 'Логи менеджера и 3proxy (Ctrl+C для выхода):\n  %s\n  %s\n' \
+        "$LOG_FILE" "$PROXY_LOG_FILE"
+    tail -n 100 -F -- "$LOG_FILE" "$PROXY_LOG_FILE"
+}

@@ -149,6 +149,17 @@ fi
 assert_eq "amnezia-proxy ${VERSION}" "$(main --version)" "версия CLI"
 assert_eq "amnezia-proxy ${VERSION}" "$("$LAUNCHER" --version)" "совместимый launcher"
 main --help | grep -q 'diagnose' || fail "в help отсутствует diagnose"
+main --help | grep -q 'logs' || fail "в help отсутствует logs"
+
+tail() { printf '%s\n' "$*" > "${TEST_TMP}/tail.args"; }
+logs_output=$(main logs)
+[[ "$logs_output" == *"$LOG_FILE"* && "$logs_output" == *"$PROXY_LOG_FILE"* ]] \
+    || fail "logs не показал пути файлов"
+assert_eq "-n 100 -F -- $LOG_FILE $PROXY_LOG_FILE" "$(cat "${TEST_TMP}/tail.args")" \
+    "аргументы tail для logs"
+[[ -f "$PROXY_LOG_FILE" && "$(stat -c %a "$PROXY_LOG_FILE")" == 600 ]] \
+    || fail "logs не подготовил приватный лог 3proxy"
+unset -f tail
 
 custom_status=""
 if custom_status=$(main --config "${TEST_TMP}/explicit-config" status 2>&1); then

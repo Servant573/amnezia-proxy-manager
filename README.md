@@ -24,6 +24,7 @@ install -m 600 config.example ~/.config/amnezia-proxy-manager/config
 
 ```bash
 ./amnezia-proxy-manager status
+./amnezia-proxy-manager logs
 ./amnezia-proxy-manager stop
 ```
 
@@ -53,10 +54,17 @@ restart     перезапустить менеджер
 status      показать состояние менеджера, туннеля и 3proxy
 test        проверить upstream-прокси
 diagnose    проверить MTU, маршруты, handshake, HTTP и SOCKS
+logs        следить за логами менеджера и 3proxy в реальном времени
 config validate  проверить конфиг без сети и изменения файлов
 ```
 
 Полная справка доступна через `./amnezia-proxy-manager --help`.
+
+`logs` показывает последние 100 строк `manager.log` и `3proxy.log`, затем
+продолжает выводить новые записи до `Ctrl+C`. Команда сама использует текущий
+`AMNEZIA_PROXY_STATE_DIR` или стандартный XDG-каталог, поэтому путь помнить не
+нужно. Конфиг не загружается; ключи и пароль upstream в эти логи не выводятся.
+Файлы создаются с правами `600`, если менеджер ещё не успел их создать.
 
 ### Проверка конфигурации
 

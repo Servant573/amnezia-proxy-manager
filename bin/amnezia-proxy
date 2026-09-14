@@ -41,6 +41,7 @@ amnezia-proxy ${VERSION}
   status      Показать состояние менеджера, туннеля и 3proxy
   test        Проверить доступность upstream-прокси
   diagnose    Проверить MTU, маршруты, handshake, HTTP и SOCKS
+  logs        Следить за логами менеджера и 3proxy в реальном времени
   config validate  Проверить конфиг без сети и изменения файлов
   help        Показать эту справку
 
@@ -104,7 +105,7 @@ main() {
     fi
 
     case "$command" in
-        start|stop|restart|status|test|diagnose)
+        start|stop|restart|status|test|diagnose|logs)
             init_paths
             ;;
         "")
@@ -131,6 +132,7 @@ main() {
         status) do_status ;;
         test) do_test ;;
         diagnose) do_diagnose ;;
+        logs) do_logs ;;
     esac
 }
 
