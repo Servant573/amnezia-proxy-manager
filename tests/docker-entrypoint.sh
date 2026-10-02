@@ -11,3 +11,4 @@ bash tests/routes.sh
 python3 tests/healthcheck.py
 python3 tests/processes.py
 bash tests/netns.sh --container
+bash tests/sandbox.sh

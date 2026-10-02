@@ -93,6 +93,7 @@ IPv4 идёт через VPN, кроме более специфичных си�
 | `diagnose` | Маршруты, MTU, handshake, firewall, HTTP/SOCKS |
 | `test` | Доступность upstream; не подтверждает VPN |
 | `logs` | Последние 100 строк и новые записи обоих логов; выход — Ctrl+C |
+| `run -- <cmd>` | Запуск команды в изолированном sandbox (netns + bwrap) |
 | `config validate` | Проверка конфига без сети и sudo |
 | `--help` / `--version` | Справка и версия |
 

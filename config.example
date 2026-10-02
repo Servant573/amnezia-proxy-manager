@@ -56,3 +56,11 @@ ALLOWED_IPS=""
 # Ответ: IPv4/CIDR через строки, пробелы или запятые; # — комментарий.
 # Ошибка скачивания или ответ без валидных адресов запрещает запуск.
 IPLIST_URLS=""
+
+# Песочница для AI-агентов (amnezia-proxy run). Требует уже запущенный start.
+# Имя network namespace; адрес /30 задаёт пару host/namespace для veth.
+SANDBOX_NETNS_NAME=apm-sandbox
+SANDBOX_VETH_SUBNET=10.200.0.0/30
+# Дополнительные пути (абсолютные, через пробел), которые скрыть от агента.
+# Конфиг, ~/.ssh, ~/.aws, ~/.gnupg и облачные creds скрываются всегда.
+SANDBOX_HIDE_PATHS=""

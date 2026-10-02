@@ -22,7 +22,8 @@ strip_quotes() {
 CONFIG_KEYS='WG_INTERFACE PRIVATE_KEY ADDRESS DNS PUBLIC_KEY ENDPOINT PERSISTENTKEEPALIVE
 Jc Jmin Jmax S1 S2 S3 S4 H1 H2 H3 H4 I1 I2 I3 I4 I5 PRESHARED_KEY
 PROXY_STRING LOCAL_HTTP_PORT LOCAL_SOCKS_PORT ALLOWED_IPS IPLIST_URLS WG_MTU
-HEALTHCHECK_URL STARTUP_HEALTHCHECK PROXY_MAXSEG PROXY_PARENT_RETRIES BLOCK_IPV6'
+HEALTHCHECK_URL STARTUP_HEALTHCHECK PROXY_MAXSEG PROXY_PARENT_RETRIES BLOCK_IPV6
+SANDBOX_NETNS_NAME SANDBOX_VETH_SUBNET SANDBOX_HIDE_PATHS'
 
 load_config() {
     [[ -f "$CONFIG_FILE" ]] || die "Конфиг не найден: $CONFIG_FILE"
@@ -62,7 +63,7 @@ load_config() {
         [[ "$value" != *[[:cntrl:]]* ]] || die "Конфиг, строка $number: управляющие символы запрещены"
         if [[ -z "$value" ]]; then
             case "$key" in
-                DNS|PRESHARED_KEY|ALLOWED_IPS|IPLIST_URLS|PROXY_MAXSEG|I1|I2|I3|I4|I5) ;;
+                DNS|PRESHARED_KEY|ALLOWED_IPS|IPLIST_URLS|PROXY_MAXSEG|I1|I2|I3|I4|I5|SANDBOX_HIDE_PATHS) ;;
                 *) die "Конфиг, строка $number: $key не должен быть пустым" ;;
             esac
         fi
@@ -95,6 +96,9 @@ load_config() {
     : "${PROXY_MAXSEG:=}"
     : "${PROXY_PARENT_RETRIES:=2}"
     : "${BLOCK_IPV6:=on}"
+    : "${SANDBOX_NETNS_NAME:=apm-sandbox}"
+    : "${SANDBOX_VETH_SUBNET:=10.200.0.0/30}"
+    : "${SANDBOX_HIDE_PATHS:=}"
 
     validate_config_values
 

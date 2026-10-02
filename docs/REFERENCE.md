@@ -261,6 +261,46 @@ WG_MTU=auto
 и официальной документации
 [3proxy parent/DNS/MSS](https://github.com/3proxy/3proxy/wiki/3proxy.cfg).
 
+## Песочница для AI-агентов
+
+`run` запускает команду в изолированном network namespace, чтобы агент (Claude Code,
+Codex и т.п.) физически не мог видеть сетевую топологию хоста. Требуется уже
+запущенный `start`: туннель, 3proxy и guard должны работать.
+
+```bash
+./amnezia-proxy-manager start
+./amnezia-proxy-manager run -- codex --version
+./amnezia-proxy-manager run -- bash -c 'ip link; ip route; curl -x http://10.200.0.1:8081 https://api.ipify.org'
+```
+
+Цепочка трафика агента:
+
+```text
+агент → 10.200.0.1 (veth) → forwarder → host 3proxy → VPN → upstream
+```
+
+Внутри namespace видны только `lo` и veth-пара; единственный маршрут ведёт к
+host-стороне veth (`10.200.0.1/32` по умолчанию), default-route отсутствует.
+Forwarder (`lib/sandbox_forwarder.py`, raw TCP relay) слушает на host-стороне veth
+и проксирует на loopback-порты 3proxy. Агент использует прокси по адресу
+`10.200.0.1:$LOCAL_HTTP_PORT` / `socks5h://10.200.0.1:$LOCAL_SOCKS_PORT` (переменные
+`HTTP_PROXY`/`ALL_PROXY` выставляются автоматически).
+
+Filesystem изолируется через `bwrap`: `/usr /bin /sbin /lib /lib64 /etc /opt`
+подключаются read-only, `$HOME` и рабочий каталог — read-write, `/run /var /root`
+и прочие каталоги хоста отсутствуют, а host-`/proc` заменяется свежим procfs.
+Секретные пути скрываются всегда: сам конфиг, `~/.amnezia-proxy.conf`, `~/.ssh`,
+`~/.aws`, `~/.gnupg`, `~/.config/gcloud`, `~/.azure`, `~/.kube`; дополнительные —
+через `SANDBOX_HIDE_PATHS`. Агент работает от вашего UID без sudo и capabilities.
+
+Параметры: `SANDBOX_NETNS_NAME` (имя namespace), `SANDBOX_VETH_SUBNET` (пара /30),
+`SANDBOX_HIDE_PATHS` (дополнительные скрытые пути). Настройка netns требует `sudo`
+(интерактивно, как `start`); очистка — `sudo -n` как у остального `stop`.
+
+Ограничение: это изоляция процесса от сетевой топологии и секретных файлов, а не
+полный kill-switch хоста. Секреты, переданные агенту в переменных окружения
+(например `ANTHROPIC_API_KEY`), не скрываются — это креды самого агента.
+
 ## Структура проекта
 
 ```text
@@ -280,6 +320,8 @@ lib/check_ipv6_guard.py         проверка содержимого IPv6-п�
 lib/diagnostics.sh             status, diagnose и test
 lib/proxy.sh                   3proxy
 lib/manager.sh                 orchestration команд
+lib/sandbox.sh                 изоляция AI-агента (netns + bwrap)
+lib/sandbox_forwarder.py       raw TCP relay между veth и 3proxy
 tests/run.sh                   локальные тесты
 ```
 

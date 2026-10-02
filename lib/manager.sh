@@ -86,6 +86,7 @@ do_start() {
 stop_components() {
     log INFO "========== ОСТАНОВКА =========="
     stop_proxy || return 1
+    sandbox_netns_destroy || return 1
     stop_tunnel || return 1
     stop_guard || return 1
     unblock_ipv6 || return 1

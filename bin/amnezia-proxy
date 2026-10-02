@@ -24,6 +24,8 @@ source "${PROJECT_ROOT}/lib/ipv6.sh"
 # shellcheck source=../lib/manager.sh
 source "${PROJECT_ROOT}/lib/manager.sh"
 source "${PROJECT_ROOT}/lib/diagnostics.sh"
+# shellcheck source=../lib/sandbox.sh
+source "${PROJECT_ROOT}/lib/sandbox.sh"
 
 umask 077
 
@@ -42,6 +44,7 @@ amnezia-proxy ${VERSION}
   test        Проверить доступность upstream-прокси
   diagnose    Проверить MTU, маршруты, handshake, HTTP и SOCKS
   logs        Следить за логами менеджера и 3proxy в реальном времени
+  run         Запустить команду в изолированном sandbox (netns + bwrap)
   config validate  Проверить конфиг без сети и изменения файлов
   help        Показать эту справку
 
@@ -61,6 +64,7 @@ EOF
 
 main() {
     local command=""
+    local -a AGENT_CMD=()
     while (( $# > 0 )); do
         case "$1" in
             -c|--config)
@@ -99,13 +103,17 @@ main() {
         ( LOG_TO_FILE=0; load_config; echo "Конфиг корректен" )
         return $?
     fi
-    if (( $# > 0 )); then
+    if [[ "$command" == run ]]; then
+        [[ $# -ge 1 ]] || { echo "Команда run требует команду агента" >&2; usage >&2; return 2; }
+        if [[ "$1" == -- ]]; then shift; fi
+        AGENT_CMD=("$@")
+    elif (( $# > 0 )); then
         echo "Лишние аргументы: $*" >&2
         return 2
     fi
 
     case "$command" in
-        start|stop|restart|status|test|diagnose|logs)
+        start|stop|restart|status|test|diagnose|logs|run)
             init_paths
             ;;
         "")
@@ -133,6 +141,7 @@ main() {
         test) do_test ;;
         diagnose) do_diagnose ;;
         logs) do_logs ;;
+        run) do_run "${AGENT_CMD[@]}" ;;
     esac
 }
 

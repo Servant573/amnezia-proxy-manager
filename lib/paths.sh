@@ -40,6 +40,8 @@ ALLOWED_IPS_CACHE="${CACHE_DIR}/allowed_ips.txt"
 TUNNEL_OWNER_FILE="${RUNTIME_DIR}/tunnel.owner"
 GUARD_FILE="${RUNTIME_DIR}/guard.owner"
 IPV6_GUARD_FILE="${RUNTIME_DIR}/ipv6.owner"
+SANDBOX_FILE="${RUNTIME_DIR}/sandbox.owner"
+FW_PID_FILE="${RUNTIME_DIR}/sandbox-forwarder.pid"
 
 secure_directory() {
     local path="$1" current="/" part owner mode root_owner
