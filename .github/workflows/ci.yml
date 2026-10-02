@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install pinned linters
+        env:
+          TOOLS_DIR: ${{ runner.temp }}/amnezia-ci-tools
+        run: |
+          mkdir -p "$TOOLS_DIR"
+          curl -q -fsSL --retry 3 --connect-timeout 10 --max-time 120 \
+            https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz \
+            -o "$TOOLS_DIR/shellcheck.tar.xz"
+          curl -q -fsSL --retry 3 --connect-timeout 10 --max-time 120 \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
+            -o "$TOOLS_DIR/actionlint.tar.gz"
+          cd "$TOOLS_DIR"
+          printf '%s\n' \
+            '8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198  shellcheck.tar.xz' \
+            '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  actionlint.tar.gz' \
+            | sha256sum --check --strict
+          tar -xJf shellcheck.tar.xz
+          tar -xzf actionlint.tar.gz actionlint
+          printf '%s\n' "$TOOLS_DIR/shellcheck-v0.11.0" "$TOOLS_DIR" >> "$GITHUB_PATH"
+      - name: Check Bash and workflow
+        run: bash tests/lint.sh
+
+  tests:
+    name: Docker tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Run isolated test suite
+        run: bash tests/docker.sh

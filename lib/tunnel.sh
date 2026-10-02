@@ -36,6 +36,8 @@ EOF
             echo "MTU = ${WG_MTU}"
         fi
         [[ -n "$DNS" ]] && echo "DNS = ${DNS}"
+        # Jc/Jmin/Jmax are assigned dynamically by load_config.
+        # shellcheck disable=SC2154
         cat <<EOF
 Jc = ${Jc}
 Jmin = ${Jmin}

@@ -105,6 +105,8 @@ IPv4 идёт через VPN, кроме более специфичных си�
 
 Полный тестовый набор: `bash tests/docker.sh`.
 Сетевые тесты выполняются в изолированном контейнере.
+Линтеры: `bash tests/lint.sh` (ShellCheck 0.11.0 и actionlint 1.7.12).
+GitHub Actions запускает обе проверки на PR, push в `master` и вручную.
 
 Подробности — в [техническом справочнике](docs/REFERENCE.md).
 План развития — в [AUDIT.md](AUDIT.md).

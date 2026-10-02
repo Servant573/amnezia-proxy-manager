@@ -94,6 +94,8 @@ validate_config_values() {
     for key in Jc Jmin Jmax S1 S2 S3 S4; do
         is_uint_between "${!key}" 0 65535 || die "$key должен быть от 0 до 65535"
     done
+    # Assigned dynamically by load_config and checked in the loop above.
+    # shellcheck disable=SC2154
     (( Jmin <= Jmax )) || die "Jmin не должен превышать Jmax"
     for key in H1 H2 H3 H4; do
         value="${!key}"; lo="${value%%-*}"; hi="${value##*-}"

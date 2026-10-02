@@ -13,6 +13,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 cli="$PROJECT_ROOT/bin/amnezia-proxy"
 "$cli" config validate >/dev/null
 [[ ! -e "$AMNEZIA_PROXY_RUNTIME_DIR" && ! -e "$AMNEZIA_PROXY_STATE_DIR" && ! -e "$AMNEZIA_PROXY_CACHE_DIR" ]] || fail 'validate changed filesystem'
+# shellcheck source=../bin/amnezia-proxy
 source "$cli"
 init_paths
 config_with() {
