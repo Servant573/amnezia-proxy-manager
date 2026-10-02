@@ -133,7 +133,7 @@ diagnose_runtime() {
         elif [[ "$actual_endpoint" =~ ^([0-9.]+):([0-9]+)$ ]]; then
             ENDPOINT_HOST="${BASH_REMATCH[1]}"; ENDPOINT_PORT="${BASH_REMATCH[2]}"
             ENDPOINT_IPS="$ENDPOINT_HOST"
-            route=$(route_for_ipv4 "$ENDPOINT_HOST" || true)
+            route=$(route_for_endpoint "$ENDPOINT_HOST" || true)
         else
             route=""
         fi

@@ -7,6 +7,7 @@ bash tests/run.sh
 bash tests/security.sh
 bash tests/behavior.sh
 bash tests/ipv6.sh
+bash tests/routes.sh
 python3 tests/healthcheck.py
 python3 tests/processes.py
 bash tests/netns.sh --container

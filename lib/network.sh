@@ -81,45 +81,58 @@ prepare_network_targets() {
 build_allowed_ips() {
     [[ -n "${PROXY_IPS:-}" ]] || prepare_network_targets
 
-    local tmp raw line ip dns_entry
+    local tmp raw line ip dns_entry url item count rejected
     tmp=$(mktemp "${ALLOWED_IPS_CACHE}.XXXXXX")
-
-    for ip in $PROXY_IPS; do
-        printf '%s/32\n' "$ip" >> "$tmp"
-    done
-    for dns_entry in ${DNS//,/ }; do
-        if is_ipv4 "$dns_entry"; then
-            printf '%s/32\n' "$dns_entry" >> "$tmp"
-            log INFO "DNS $dns_entry добавлен в AllowedIPs"
-        fi
-    done
-
-    if [[ -n "${IPLIST_URLS:-}" ]]; then
-        local url
+    if [[ -z "$(trim "${ALLOWED_IPS:-}")" && -z "$(trim "${IPLIST_URLS:-}")" ]]; then
+        printf '0.0.0.0/0\n' >> "$tmp"
+        log WARN "Списки маршрутов не заданы: весь IPv4-трафик без более специфичных системных маршрутов пойдёт через VPN"
+    else
+        for item in ${ALLOWED_IPS//,/ }; do
+            if is_ipv4 "$item"; then item="$item/32"; fi
+            is_ipv4_cidr "$item" || { rm -f "$tmp"; die "ALLOWED_IPS: некорректный IPv4/CIDR"; }
+            [[ "$item" != */0 ]] || item=0.0.0.0/0
+            printf '%s\n' "$item" >> "$tmp"
+        done
         for url in $IPLIST_URLS; do
             log INFO "Скачиваю список: $url"
-            if raw=$(curl -fsSL --proto '=https' --max-time 45 --connect-timeout 10 "$url"); then
-                printf '%s\n' "$raw" >> "$tmp"
-                log OK "Список загружен"
-            else
-                log WARN "Не удалось скачать: $url"
+            if ! raw=$(curl -q -fsSL --proto '=https' --proto-redir '=https' --max-time 45 --connect-timeout 10 -- "$url"); then
+                rm -f "$tmp"
+                die "Не удалось скачать список маршрутов: $url"
+            fi
+            count=0; rejected=0
+            while IFS= read -r line || [[ -n "$line" ]]; do
+                line="${line//$'\r'/}"
+                line="${line%%#*}"
+                for item in ${line//,/ }; do
+                    if is_ipv4 "$item"; then item="$item/32"; fi
+                    if is_ipv4_cidr "$item"; then
+                        [[ "$item" != */0 ]] || item=0.0.0.0/0
+                        printf '%s\n' "$item" >> "$tmp"
+                        count=$((count + 1))
+                    else
+                        rejected=$((rejected + 1))
+                    fi
+                done
+            done <<< "$raw"
+            (( count > 0 )) || { rm -f "$tmp"; die "Список маршрутов не содержит валидных IPv4/CIDR: $url"; }
+            (( rejected == 0 )) || log WARN "В списке отброшено невалидных записей: $rejected"
+            log OK "Список загружен: $count IPv4-префиксов"
+        done
+        for ip in $PROXY_IPS; do
+            printf '%s/32\n' "$ip" >> "$tmp"
+        done
+        for dns_entry in ${DNS//,/ }; do
+            if is_ipv4 "$dns_entry"; then
+                printf '%s/32\n' "$dns_entry" >> "$tmp"
+                log INFO "DNS $dns_entry добавлен в AllowedIPs"
             fi
         done
-    else
-        log WARN "IPLIST_URLS пуст — в туннель пойдёт только прокси"
     fi
 
-    ALLOWED_IPS=$(
-        while IFS= read -r line; do
-            line="${line//$'\r'/}"
-            line="${line%%#*}"
-            line=$(trim "$line")
-            is_ipv4_cidr "$line" || continue
-            printf '%s\n' "$line"
-        done < "$tmp" | sort -u | paste -sd, -
-    )
+    ALLOWED_IPS=$(LC_ALL=C sort -u "$tmp" | paste -sd, -)
+    # An explicit default route has the same full-tunnel semantics.
+    if [[ ",$ALLOWED_IPS," == *,0.0.0.0/0,* ]]; then ALLOWED_IPS=0.0.0.0/0; fi
 
-    local count
     count=$(echo "$ALLOWED_IPS" | tr ',' '\n' | grep -c . || true)
     log INFO "AllowedIPs: ${count} валидных IPv4-префиксов"
 
@@ -128,6 +141,6 @@ build_allowed_ips() {
         die "AllowedIPs пустой — проверь IPLIST_URLS и сеть"
     fi
 
-    echo "$ALLOWED_IPS" | tr ',' '\n' > "$ALLOWED_IPS_CACHE"
-    rm -f "$tmp"
+    printf '%s\n' "$ALLOWED_IPS" | tr ',' '\n' > "$tmp"
+    mv -f -- "$tmp" "$ALLOWED_IPS_CACHE"
 }

@@ -74,6 +74,21 @@ route_for_ipv4() {
     ip -4 route get "$1" 2>/dev/null | head -1
 }
 
+route_for_endpoint() {
+    local ip="$1" mark
+    # Default routes use awg-quick policy routing. Outer UDP packets carry the
+    # interface's fwmark; an unmarked lookup instead follows the VPN default.
+    if [[ -r "$WG_TMP_CONF" ]] &&
+        grep -Eq '^AllowedIPs = (.*,[[:space:]]*)?0\.0\.0\.0/0([[:space:]]*,.*)?$' "$WG_TMP_CONF"; then
+        mark=$(run_privileged awg show "$WG_INTERFACE" fwmark) || return 1
+        [[ "$mark" =~ ^(0x[0-9a-fA-F]{1,8}|[1-9][0-9]{0,9})$ ]] || return 1
+        (( mark > 0 && mark <= 4294967295 )) || return 1
+        ip -4 route get "$ip" mark "$mark" 2>/dev/null | head -1
+    else
+        route_for_ipv4 "$ip"
+    fi
+}
+
 route_uses_interface() {
     local route="$1" interface="$2"
     [[ " $route " == *" dev $interface "* ]]
@@ -84,7 +99,7 @@ verify_tunnel_routes() {
     [[ -n "${ENDPOINT_IPS:-}" ]] || die "IPv4 endpoint не определён; проверку маршрута нельзя пропустить"
     for ip in ${ENDPOINT_IPS:-}; do
         is_ipv4 "$ip" || die "Проверка маршрута требует IPv4 endpoint"
-        route=$(route_for_ipv4 "$ip") || die "Нет маршрута к endpoint $ip"
+        route=$(route_for_endpoint "$ip") || die "Нет проверенного маршрута к endpoint $ip (включая fwmark для полного VPN)"
         if route_uses_interface "$route" "$WG_INTERFACE"; then
             die "Маршрут к endpoint $ip попал в $WG_INTERFACE — обнаружена VPN-петля"
         fi
@@ -99,7 +114,7 @@ verify_tunnel_routes() {
 
 underlay_mtu_for_ipv4() {
     local ip="$1" route dev mtu
-    route=$(route_for_ipv4 "$ip") || return 1
+    route=$(route_for_endpoint "$ip") || return 1
     mtu=$(awk '{for (i=1; i<=NF; i++) if ($i == "mtu") {print $(i+1); exit}}' <<< "$route")
     if [[ "$mtu" =~ ^[0-9]+$ ]]; then
         printf '%s' "$mtu"

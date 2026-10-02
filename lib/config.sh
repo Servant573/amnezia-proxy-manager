@@ -21,7 +21,7 @@ strip_quotes() {
 
 CONFIG_KEYS='WG_INTERFACE PRIVATE_KEY ADDRESS DNS PUBLIC_KEY ENDPOINT PERSISTENTKEEPALIVE
 Jc Jmin Jmax S1 S2 S3 S4 H1 H2 H3 H4 I1 I2 I3 I4 I5 PRESHARED_KEY
-PROXY_STRING LOCAL_HTTP_PORT LOCAL_SOCKS_PORT IPLIST_URLS WG_MTU
+PROXY_STRING LOCAL_HTTP_PORT LOCAL_SOCKS_PORT ALLOWED_IPS IPLIST_URLS WG_MTU
 HEALTHCHECK_URL STARTUP_HEALTHCHECK PROXY_MAXSEG PROXY_PARENT_RETRIES BLOCK_IPV6'
 
 load_config() {
@@ -62,7 +62,7 @@ load_config() {
         [[ "$value" != *[[:cntrl:]]* ]] || die "Конфиг, строка $number: управляющие символы запрещены"
         if [[ -z "$value" ]]; then
             case "$key" in
-                DNS|PRESHARED_KEY|IPLIST_URLS|PROXY_MAXSEG|I1|I2|I3|I4|I5) ;;
+                DNS|PRESHARED_KEY|ALLOWED_IPS|IPLIST_URLS|PROXY_MAXSEG|I1|I2|I3|I4|I5) ;;
                 *) die "Конфиг, строка $number: $key не должен быть пустым" ;;
             esac
         fi
@@ -72,6 +72,7 @@ load_config() {
     : "${WG_INTERFACE:=}" "${PRIVATE_KEY:=}" "${ADDRESS:=}"
     : "${PUBLIC_KEY:=}" "${ENDPOINT:=}" "${PROXY_STRING:=}"
     : "${IPLIST_URLS:=}"
+    : "${ALLOWED_IPS:=}"
     : "${PRESHARED_KEY:=}"
     : "${LOCAL_HTTP_PORT:=8081}"
     : "${LOCAL_SOCKS_PORT:=8080}"

@@ -111,4 +111,9 @@ validate_config_values() {
     is_uint_between "$PROXY_PARENT_RETRIES" 1 10 || die "PROXY_PARENT_RETRIES должен быть от 1 до 10"
     [[ -z "$PROXY_MAXSEG" ]] || is_uint_between "$PROXY_MAXSEG" 536 8960 || die "PROXY_MAXSEG должен быть от 536 до 8960"
     for item in $IPLIST_URLS; do is_https_url "$item" || die "IPLIST_URLS: ожидаются HTTPS URL"; done
+    value="${ALLOWED_IPS//[[:space:]]/}"
+    [[ "$value" != ,* && "$value" != *, && "$value" != *,,* ]] || die "Некорректный список ALLOWED_IPS"
+    for item in ${ALLOWED_IPS//,/ }; do
+        is_ipv4 "$item" || is_ipv4_cidr "$item" || die "ALLOWED_IPS: ожидаются IPv4-адреса или CIDR"
+    done
 }

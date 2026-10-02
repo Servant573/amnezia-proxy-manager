@@ -52,6 +52,30 @@ stop_guard
 [[ ! -e "$GUARD_FILE" ]] || exit 1
 echo 'OK: kernel blocks underlay and replacement interface; permits VPN output'
 
+# Reproduce awg-quick full-tunnel policy routing using dummy interfaces.
+WG_TMP_CONF="$TEST_TMP/full.conf"
+printf 'AllowedIPs = 0.0.0.0/0\n' > "$WG_TMP_CONF"
+ip -4 route add default dev wan-audit
+ip -4 route add default dev vpn-audit table 51820
+ip -4 rule add priority 100 not fwmark 51820 table 51820
+ip -4 rule add priority 99 table main suppress_prefixlength 0
+run_privileged() {
+    if [[ "$*" == "awg show $WG_INTERFACE fwmark" ]]; then echo 0xca6c; else sudo -n timeout --kill-after=2 10 "$@"; fi
+}
+route=$(route_for_ipv4 192.0.2.10)
+route_uses_interface "$route" vpn-audit || { echo 'Unmarked traffic missed full VPN'; exit 1; }
+route=$(route_for_endpoint 192.0.2.10)
+route_uses_interface "$route" wan-audit || { echo 'Marked endpoint missed underlay'; exit 1; }
+ENDPOINT_IPS=192.0.2.10
+verify_tunnel_routes >/dev/null
+ip -4 route replace default dev vpn-audit
+if (verify_tunnel_routes >/dev/null 2>&1); then echo 'Full-mode endpoint loop accepted'; exit 1; fi
+ip -4 rule delete priority 99
+ip -4 rule delete priority 100
+ip -4 route flush table 51820
+ip -4 route delete default dev vpn-audit
+echo 'OK: full VPN policy routing and marked endpoint loop checks passed'
+
 # IPv6 has a real route before blocking; failure cannot be attributed to an
 # absent AAAA answer or absent IPv6 connectivity. Everything stays in this netns.
 ip link set lo up
