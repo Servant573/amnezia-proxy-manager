@@ -137,7 +137,7 @@ sandbox_stop_forwarder() {
 }
 
 sandbox_verify() {
-    local links routes
+    local links routes exit_ip
     links=$(sudo ip netns exec "$SANDBOX_NETNS_NAME" ip -o link show 2>/dev/null | wc -l)
     (( links == 2 )) || die "Изоляция нарушена: в namespace $links интерфейсов вместо 2"
     routes=$(sudo ip netns exec "$SANDBOX_NETNS_NAME" ip route show 2>/dev/null)
@@ -148,6 +148,16 @@ sandbox_verify() {
         die "Forwarder или прокси недоступны из namespace"
     fi
     log OK "Изоляция проверена: 2 интерфейса, без default-route, прокси доступен"
+    if [[ -n "$SANDBOX_EXPECTED_EXIT_IP" ]]; then
+        if ! exit_ip=$(sudo ip netns exec "$SANDBOX_NETNS_NAME" curl -q -fsS --noproxy '' \
+            --connect-timeout 3 --max-time 10 \
+            --proxy "http://${SANDBOX_HOST_IP}:${SANDBOX_HTTP_PORT}" "$HEALTHCHECK_URL"); then
+            die "Не удалось определить выходной IP из namespace"
+        fi
+        [[ "$exit_ip" == "$SANDBOX_EXPECTED_EXIT_IP" ]] \
+            || die "Выходной IP $exit_ip не совпал с SANDBOX_EXPECTED_EXIT_IP ($SANDBOX_EXPECTED_EXIT_IP)"
+        log OK "Выходной IP подтверждён: $exit_ip"
+    fi
 }
 
 sandbox_build_bwrap() {
@@ -194,7 +204,9 @@ sandbox_build_bwrap() {
     BWRAP_ARGS+=( --setenv https_proxy "http://${SANDBOX_HOST_IP}:${SANDBOX_HTTP_PORT}" )
     BWRAP_ARGS+=( --setenv ALL_PROXY "socks5h://${SANDBOX_HOST_IP}:${SANDBOX_SOCKS_PORT}" )
     BWRAP_ARGS+=( --setenv all_proxy "socks5h://${SANDBOX_HOST_IP}:${SANDBOX_SOCKS_PORT}" )
-    BWRAP_ARGS+=( --setenv NO_PROXY "" --setenv no_proxy "" )
+    BWRAP_ARGS+=( --setenv NO_PROXY "$SANDBOX_NO_PROXY" --setenv no_proxy "$SANDBOX_NO_PROXY" )
+    # Node: предпочитать IPv4, чтобы не обойти защиту по IPv6 (в netns IPv6 и так нет).
+    BWRAP_ARGS+=( --setenv NODE_OPTIONS "${NODE_OPTIONS:-}${NODE_OPTIONS:+ }--dns-result-order=ipv4first" )
 }
 
 sandbox_run_agent() {

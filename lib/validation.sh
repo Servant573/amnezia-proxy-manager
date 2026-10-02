@@ -123,4 +123,6 @@ validate_config_values() {
     for item in $SANDBOX_HIDE_PATHS; do
         [[ "$item" == /* && "$item" != *..* ]] || die "SANDBOX_HIDE_PATHS: ожидаются абсолютные пути без .."
     done
+    [[ "$SANDBOX_NO_PROXY" != *[[:space:]]* ]] || die "SANDBOX_NO_PROXY: без пробелов, через запятую"
+    [[ -z "$SANDBOX_EXPECTED_EXIT_IP" ]] || is_ipv4 "$SANDBOX_EXPECTED_EXIT_IP" || die "SANDBOX_EXPECTED_EXIT_IP: ожидается IPv4-адрес"
 }

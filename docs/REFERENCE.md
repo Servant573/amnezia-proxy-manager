@@ -294,8 +294,15 @@ Filesystem изолируется через `bwrap`: `/usr /bin /sbin /lib /lib
 через `SANDBOX_HIDE_PATHS`. Агент работает от вашего UID без sudo и capabilities.
 
 Параметры: `SANDBOX_NETNS_NAME` (имя namespace), `SANDBOX_VETH_SUBNET` (пара /30),
-`SANDBOX_HIDE_PATHS` (дополнительные скрытые пути). Настройка netns требует `sudo`
-(интерактивно, как `start`); очистка — `sudo -n` как у остального `stop`.
+`SANDBOX_HIDE_PATHS` (дополнительные скрытые пути), `SANDBOX_NO_PROXY`
+(исключения `NO_PROXY` через запятую), `SANDBOX_EXPECTED_EXIT_IP` (fail-closed
+сверка выходного IP). Настройка netns требует `sudo` (интерактивно, как `start`);
+очистка — `sudo -n` как у остального `stop`. Агенту всегда выставляется
+`NODE_OPTIONS=--dns-result-order=ipv4first`.
+
+`SANDBOX_NO_PROXY` по умолчанию пуст — весь трафик идёт через VPN-прокси. Учтите:
+localhost-сервисы хоста (например MCP) из netns недоступны в любом случае, потому
+что у агента отдельный сетевой стек; `NO_PROXY` не отменяет изоляцию netns.
 
 Ограничение: это изоляция процесса от сетевой топологии и секретных файлов, а не
 полный kill-switch хоста. Секреты, переданные агенту в переменных окружения

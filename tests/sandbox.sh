@@ -47,20 +47,32 @@ secret_file="$HOME/.token"; echo SECRET > "$secret_file"
 CONFIG_FILE="$HOME/config"; echo 'PRIVATE_KEY=real' > "$CONFIG_FILE"
 LEGACY_CONFIG_FILE="$HOME/legacy"; echo legacy > "$LEGACY_CONFIG_FILE"
 SANDBOX_HIDE_PATHS="$secret_dir $secret_file"
+SANDBOX_NO_PROXY="localhost,z.ai"
+SANDBOX_EXPECTED_EXIT_IP=""
 SANDBOX_HOST_IP=10.200.0.1; SANDBOX_HTTP_PORT=8081; SANDBOX_SOCKS_PORT=8080
 if bwrap --dev /dev --tmpfs /tmp --ro-bind /bin /bin --ro-bind /usr /usr \
     --ro-bind /lib /lib --ro-bind /lib64 /lib64 -- /bin/true 2>/dev/null; then
     sandbox_build_bwrap
     out=$(bwrap "${BWRAP_ARGS[@]}" -- bash -c '
-      printf "%s|%s|%s|%s" \
+      printf "%s|%s|%s|%s|%s|%s" \
         "$(cat '"$secret_file"' 2>/dev/null)" \
         "$(ls -A '"$secret_dir"' | wc -l)" \
         "$(cat /etc/resolv.conf 2>/dev/null)" \
-        "$(test -e /run/netns && echo LEAK || echo none)"
+        "$(test -e /run/netns && echo LEAK || echo none)" \
+        "$NO_PROXY" \
+        "$NODE_OPTIONS"
     ')
-    [[ "$out" == "|0|nameserver 127.0.0.1|none" ]] || fail "bwrap masking: $out"
+    [[ "$out" == "|0|nameserver 127.0.0.1|none|localhost,z.ai|"* ]] || fail "bwrap masking/env: $out"
+    [[ "$out" == *"--dns-result-order=ipv4first" ]] || fail "NODE_OPTIONS: $out"
 else
     echo "(bwrap недоступен без прав на namespaces — секция пропущена)"
+fi
+
+# --- офлайн-валидация SANDBOX_EXPECTED_EXIT_IP ---
+cp "$PROJECT_ROOT/tests/fixtures/valid.conf" "$TEST_TMP/validate-bad"
+printf 'SANDBOX_EXPECTED_EXIT_IP=999.1.1.1\n' >> "$TEST_TMP/validate-bad"
+if ( CONFIG_FILE="$TEST_TMP/validate-bad" LOG_TO_FILE=0 load_config ) >/dev/null 2>&1; then
+    fail "SANDBOX_EXPECTED_EXIT_IP принял невалидный IPv4"
 fi
 
 # --- netns create/verify/destroy (нужен root и рабочий ip netns add) ---
