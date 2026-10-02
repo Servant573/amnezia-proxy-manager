@@ -32,11 +32,13 @@ while True:
 PY
 server_pid=$!
 sleep 0.2
-python3 "$PROJECT_ROOT/lib/sandbox_forwarder.py" '127.0.0.1:19081=127.0.0.1:19080' &
+python3 "$PROJECT_ROOT/lib/sandbox_forwarder.py" --log "$TEST_TMP/fw.log" '127.0.0.1:19081=127.0.0.1:19080' &
 forwarder_pid=$!
 sleep 0.3
-got=$(python3 -c 'import socket; s=socket.socket(); s.connect(("127.0.0.1",19081)); s.sendall(b"hi"); print(s.recv(100).decode())')
-[[ "$got" == "echo:hi" ]] || fail "forwarder relay: получено '$got'"
+got=$(python3 -c 'import socket; s=socket.socket(); s.connect(("127.0.0.1",19081)); s.sendall(b"CONNECT example.com:443 HTTP/1.1\n"); print(s.recv(200).decode())')
+[[ "$got" == *"echo:CONNECT example.com:443"* ]] || fail "forwarder relay: получено '$got'"
+sleep 0.2
+grep -q "CONNECT example.com:443" "$TEST_TMP/fw.log" || fail "forwarder не залогировал: $(cat "$TEST_TMP/fw.log" 2>/dev/null)"
 kill "$forwarder_pid" "$server_pid" 2>/dev/null || true
 
 # --- bwrap: скрыты секреты, resolv.conf и /run/netns недоступны ---
@@ -75,6 +77,11 @@ if ( CONFIG_FILE="$TEST_TMP/validate-bad" LOG_TO_FILE=0 load_config ) >/dev/null
     fail "SANDBOX_EXPECTED_EXIT_IP принял невалидный IPv4"
 fi
 
+# Kernel tests never run in the host namespace. Explicit container mode only.
+if [[ "${1:-}" != --container || ! -f /.dockerenv ]]; then
+    echo 'SKIP: netns kernel tests require an isolated Docker container'
+    exit 0
+fi
 # --- netns create/verify/destroy (нужен root и рабочий ip netns add) ---
 sudo() { [[ "$1" != -n ]] || shift; "$@"; }
 run_privileged() { [[ "$1" != -n ]] || shift; "$@"; }
@@ -82,7 +89,7 @@ if ip netns add apm-probe 2>/dev/null; then
     ip netns del apm-probe
     SANDBOX_NETNS_NAME=apm-test
     SANDBOX_VETH_SUBNET=10.223.0.0/30
-    SANDBOX_HOST_IF=apm0; SANDBOX_NS_IF=apm1
+    sandbox_acquire_lock
     sandbox_netns_create
     [[ "$(ip netns exec apm-test ip -o link show | wc -l)" == 2 ]] || fail "netns: не 2 интерфейса"
     ip netns exec apm-test ip route show | grep -q '^default' && fail "netns: есть default-route"
@@ -90,11 +97,15 @@ if ip netns add apm-probe 2>/dev/null; then
     sleep 30 &
     other=$!
     other_id=$(process_identity "$other")
-    printf '%s %s %s %s\n%s\n%s\n' \
-        apm-test apm0 10.223.0.1 "$(cat /proc/sys/kernel/random/boot_id)" "$other" "$other_id" > "$SANDBOX_FILE"
+    cp "$SANDBOX_FILE" "$TEST_TMP/owner.saved"
+    printf '%s %s %s %s\n%s\n%s\n2 %s %s %s\n' \
+        apm-test "$SANDBOX_HOST_IF" 10.223.0.1 "$(cat /proc/sys/kernel/random/boot_id)" \
+        "$other" "$other_id" "$SANDBOX_NS_ID" "$SANDBOX_HOST_INDEX" "$SANDBOX_PEER_INDEX" > "$SANDBOX_FILE"
     if sandbox_netns_destroy; then fail "netns: удалён при живом чужом процессе"; fi
     kill "$other" 2>/dev/null || true
+    cp "$TEST_TMP/owner.saved" "$SANDBOX_FILE"
     sandbox_netns_destroy
+    sandbox_release_lock
     ip netns list | grep -q apm-test && fail "netns: не удалён"
     echo "OK: sandbox isolation tests passed (forwarder, bwrap, netns)"
 else

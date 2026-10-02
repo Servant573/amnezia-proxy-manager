@@ -8,7 +8,11 @@ bash tests/security.sh
 bash tests/behavior.sh
 bash tests/ipv6.sh
 bash tests/routes.sh
+bash tests/sandbox-lifecycle.sh
+python3 tests/sandbox-signals.py
+python3 tests/sandbox-forwarder.py
+python3 tests/sandbox-logging.py
 python3 tests/healthcheck.py
 python3 tests/processes.py
 bash tests/netns.sh --container
-bash tests/sandbox.sh
+bash tests/sandbox.sh --container

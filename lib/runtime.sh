@@ -9,7 +9,8 @@ run_privileged() {
 same_process_alive() {
     local pid="$1" identity="$2" line state
     [[ -r "/proc/$pid/stat" ]] || return 1
-    line=$(<"/proc/$pid/stat")
+    # The process may exit between the existence check and the read.
+    line=$(cat "/proc/$pid/stat" 2>/dev/null) || return 1
     state="${line##*) }"; state="${state%% *}"
     [[ "$state" != Z && "$state" != X ]] || return 1
     [[ "$(process_identity "$pid" 2>/dev/null)" == "$identity" ]]
@@ -28,7 +29,7 @@ process_identity() {
     local pid="$1" stat_line
     local -a fields
     [[ -r "/proc/$pid/stat" ]] || return 1
-    stat_line=$(<"/proc/$pid/stat")
+    stat_line=$(cat "/proc/$pid/stat" 2>/dev/null) || return 1
     # comm may contain spaces and parentheses; the final ')' closes it.
     read -r -a fields <<< "${stat_line##*) }"
     [[ "${fields[19]:-}" =~ ^[0-9]+$ ]] || return 1

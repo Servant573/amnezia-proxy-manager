@@ -85,15 +85,23 @@ do_start() {
 
 stop_components() {
     log INFO "========== ОСТАНОВКА =========="
+    sandbox_stop || return 1
     stop_proxy || return 1
-    sandbox_netns_destroy || return 1
     stop_tunnel || return 1
     stop_guard || return 1
     unblock_ipv6 || return 1
     log OK "Всё остановлено"
 }
 
-do_stop() {
+do_stop() (
+    # Serialize the whole operation, including signalling the manager: its
+    # EXIT cleanup would otherwise stop the proxy before checking active run.
+    sandbox_acquire_lock || die "Сначала завершите активный run"
+    trap sandbox_release_lock EXIT
+    do_stop_locked
+)
+
+do_stop_locked() {
     local manager_pid=""
     if is_manager_running; then
         manager_pid=$(read_pid "$MANAGER_PID_FILE")

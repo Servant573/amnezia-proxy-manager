@@ -153,13 +153,29 @@ main --help | grep -q 'logs' || fail "в help отсутствует logs"
 
 tail() { printf '%s\n' "$*" > "${TEST_TMP}/tail.args"; }
 logs_output=$(main logs)
-[[ "$logs_output" == *"$LOG_FILE"* && "$logs_output" == *"$PROXY_LOG_FILE"* ]] \
+[[ "$logs_output" == *"$LOG_FILE"* && "$logs_output" == *"$PROXY_LOG_FILE"* && "$logs_output" == *"$SANDBOX_LOG_FILE"* ]] \
     || fail "logs не показал пути файлов"
-assert_eq "-n 100 -F -- $LOG_FILE $PROXY_LOG_FILE" "$(cat "${TEST_TMP}/tail.args")" \
+assert_eq "-n 100 -F -- $LOG_FILE $PROXY_LOG_FILE $SANDBOX_LOG_FILE" "$(cat "${TEST_TMP}/tail.args")" \
     "аргументы tail для logs"
 [[ -f "$PROXY_LOG_FILE" && "$(stat -c %a "$PROXY_LOG_FILE")" == 600 ]] \
     || fail "logs не подготовил приватный лог 3proxy"
+[[ -f "$SANDBOX_LOG_FILE" && "$(stat -c %a "$SANDBOX_LOG_FILE")" == 600 ]] \
+    || fail "logs не подготовил приватный лог sandbox"
 unset -f tail
+
+# A dangling log symlink must not create or overwrite its target.
+ln -s "${TEST_TMP}/must-not-create" "${TEST_TMP}/dangling-log"
+if prepare_log_for_follow "${TEST_TMP}/dangling-log"; then
+    fail "prepare_log_for_follow принял dangling symlink"
+fi
+[[ ! -e "${TEST_TMP}/must-not-create" ]] || fail "log preparation записал через symlink"
+
+printf 'keep\n' > "${TEST_TMP}/hardlink-source"
+ln "${TEST_TMP}/hardlink-source" "${TEST_TMP}/hardlink-log"
+if prepare_log_for_follow "${TEST_TMP}/hardlink-log"; then
+    fail "prepare_log_for_follow принял hardlink"
+fi
+[[ "$(cat "${TEST_TMP}/hardlink-source")" == keep ]] || fail "log preparation повредил hardlink target"
 
 custom_status=""
 if custom_status=$(main --config "${TEST_TMP}/explicit-config" status 2>&1); then

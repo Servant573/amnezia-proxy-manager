@@ -33,6 +33,7 @@ fi
 PROXY_CFG="${RUNTIME_DIR}/3proxy.cfg"
 LOG_FILE="${STATE_DIR}/manager.log"
 PROXY_LOG_FILE="${STATE_DIR}/3proxy.log"
+SANDBOX_LOG_FILE="${STATE_DIR}/sandbox.log"
 PID_FILE="${RUNTIME_DIR}/3proxy.pid"
 MANAGER_PID_FILE="${RUNTIME_DIR}/manager.pid"
 LOCK_FILE="${RUNTIME_DIR}/manager.lock"

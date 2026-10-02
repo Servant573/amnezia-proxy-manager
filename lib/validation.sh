@@ -120,6 +120,10 @@ validate_config_values() {
     done
     [[ "$SANDBOX_NETNS_NAME" =~ ^[a-zA-Z0-9_=+.-]{1,15}$ && "$SANDBOX_NETNS_NAME" != . && "$SANDBOX_NETNS_NAME" != .. ]] || die "Недопустимое имя SANDBOX_NETNS_NAME"
     [[ "${SANDBOX_VETH_SUBNET##*/}" == 30 ]] && is_ipv4 "${SANDBOX_VETH_SUBNET%/*}" || die "SANDBOX_VETH_SUBNET: ожидается IPv4 CIDR /30"
+    local sandbox_base sandbox_last
+    sandbox_base=${SANDBOX_VETH_SUBNET%/*}
+    sandbox_last=${sandbox_base##*.}
+    (( sandbox_last % 4 == 0 )) || die "SANDBOX_VETH_SUBNET: адрес сети должен быть выровнен на /30"
     for item in $SANDBOX_HIDE_PATHS; do
         [[ "$item" == /* && "$item" != *..* ]] || die "SANDBOX_HIDE_PATHS: ожидаются абсолютные пути без .."
     done

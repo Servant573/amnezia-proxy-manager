@@ -33,14 +33,17 @@ for spec in 'LOCAL_HTTP_PORT=0' 'LOCAL_SOCKS_PORT=65536' 'LOCAL_HTTP_PORT=8080' 
     'ADDRESS=10.0.0.2/32,2001:db8::1/64' 'ADDRESS=::1/128' \
     'ENDPOINT=[::ffff:192.0.2.1]:51820' 'BLOCK_IPV6=maybe' \
     'ALLOWED_IPS=192.0.2.1./24' 'ALLOWED_IPS=192.0.2.0/33' \
-    'ALLOWED_IPS=2001:db8::/32' 'ALLOWED_IPS=192.0.2.1,,198.51.100.1'; do
+    'ALLOWED_IPS=2001:db8::/32' 'ALLOWED_IPS=192.0.2.1,,198.51.100.1' \
+    'SANDBOX_VETH_SUBNET=10.200.0.1/30' 'SANDBOX_VETH_SUBNET=10.200.0.3/30' \
+    'SANDBOX_VETH_SUBNET=255.255.255.255/30'; do
     config_with "$spec"
     if "$cli" config validate > "$TEST_TMP/result" 2>&1; then fail "invalid value accepted: ${spec%%=*}"; fi
     if grep -q secret-marker "$TEST_TMP/result"; then fail 'secret in validation error'; fi
 done
 for spec in 'ADDRESS=10.0.0.2/32,10.0.0.3/32' 'BLOCK_IPV6=on' \
     'BLOCK_IPV6=off' 'H1=10-20' 'PRESHARED_KEY=' 'ALLOWED_IPS=' \
-    'ALLOWED_IPS=192.0.2.1, 198.51.100.0/24' 'ALLOWED_IPS=0.0.0.0/0'; do
+    'ALLOWED_IPS=192.0.2.1, 198.51.100.0/24' 'ALLOWED_IPS=0.0.0.0/0' \
+    'SANDBOX_VETH_SUBNET=10.200.0.0/30' 'SANDBOX_VETH_SUBNET=10.200.0.252/30'; do
     config_with "$spec"
     "$cli" config validate >/dev/null || fail "valid value rejected: $spec"
 done
