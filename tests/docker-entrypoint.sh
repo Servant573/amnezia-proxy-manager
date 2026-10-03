@@ -9,6 +9,7 @@ bash tests/behavior.sh
 bash tests/ipv6.sh
 bash tests/routes.sh
 bash tests/sandbox-lifecycle.sh
+bash tests/sandbox-environment.sh
 python3 tests/sandbox-signals.py
 python3 tests/sandbox-forwarder.py
 python3 tests/sandbox-logging.py

@@ -296,7 +296,8 @@ sandbox_verify() {
 }
 
 sandbox_build_bwrap() {
-    local empty_stub resolv_stub sysdir
+    local empty_stub resolv_stub sysdir agent_user
+    agent_user=$(id -un "$UID") || return 1
     empty_stub="${RUNTIME_DIR}/sandbox-empty"
     resolv_stub="${RUNTIME_DIR}/sandbox-resolv.conf"
     ( umask 077; : > "$empty_stub"; printf 'nameserver 127.0.0.1\n' > "$resolv_stub" ) || return 1
@@ -333,6 +334,10 @@ sandbox_build_bwrap() {
     done
 
     BWRAP_ARGS+=( --cap-drop ALL --chdir "$PWD" )
+    # sudo resets PATH and may change HOME; setpriv changes credentials only.
+    # Restore these explicitly inside bwrap, not in the privileged launcher.
+    BWRAP_ARGS+=( --setenv PATH "$PATH" --setenv HOME "$HOME" )
+    BWRAP_ARGS+=( --setenv USER "$agent_user" --setenv LOGNAME "$agent_user" )
     BWRAP_ARGS+=( --setenv HTTP_PROXY "http://${SANDBOX_HOST_IP}:${SANDBOX_HTTP_PORT}" )
     BWRAP_ARGS+=( --setenv http_proxy "http://${SANDBOX_HOST_IP}:${SANDBOX_HTTP_PORT}" )
     BWRAP_ARGS+=( --setenv HTTPS_PROXY "http://${SANDBOX_HOST_IP}:${SANDBOX_HTTP_PORT}" )
