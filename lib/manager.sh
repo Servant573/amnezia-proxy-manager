@@ -11,6 +11,7 @@ check_deps() {
     check_tunnel_deps
     command -v 3proxy >/dev/null 2>&1 || die "3proxy не найден"
     command -v curl   >/dev/null 2>&1 || die "curl не найден"
+    command -v python3 >/dev/null 2>&1 || die "Python 3 не найден; нужен для оптимизации маршрутов"
     command -v flock  >/dev/null 2>&1 || die "flock не найден (обычно входит в util-linux)"
     command -v getent >/dev/null 2>&1 || die "getent не найден (обычно входит в libc-bin)"
     command -v ss     >/dev/null 2>&1 || die "ss не найден (обычно входит в iproute2)"

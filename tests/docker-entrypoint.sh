@@ -8,6 +8,7 @@ bash tests/security.sh
 bash tests/behavior.sh
 bash tests/ipv6.sh
 bash tests/routes.sh
+python3 tests/route-collapse.py
 bash tests/sandbox-lifecycle.sh
 bash tests/sandbox-environment.sh
 python3 tests/sandbox-signals.py

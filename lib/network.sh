@@ -81,7 +81,7 @@ prepare_network_targets() {
 build_allowed_ips() {
     [[ -n "${PROXY_IPS:-}" ]] || prepare_network_targets
 
-    local tmp raw line ip dns_entry url item count rejected
+    local tmp raw line ip dns_entry url item count rejected before collapsed
     tmp=$(mktemp "${ALLOWED_IPS_CACHE}.XXXXXX")
     if [[ -z "$(trim "${ALLOWED_IPS:-}")" && -z "$(trim "${IPLIST_URLS:-}")" ]]; then
         printf '0.0.0.0/0\n' >> "$tmp"
@@ -129,12 +129,15 @@ build_allowed_ips() {
         done
     fi
 
-    ALLOWED_IPS=$(LC_ALL=C sort -u "$tmp" | paste -sd, -)
-    # An explicit default route has the same full-tunnel semantics.
-    if [[ ",$ALLOWED_IPS," == *,0.0.0.0/0,* ]]; then ALLOWED_IPS=0.0.0.0/0; fi
+    before=$(LC_ALL=C sort -u "$tmp" | wc -l)
+    if ! collapsed=$(python3 "$PROJECT_ROOT/lib/collapse_routes.py" < "$tmp"); then
+        rm -f "$tmp"
+        die "Не удалось оптимизировать IPv4-маршруты"
+    fi
+    ALLOWED_IPS=$(printf '%s\n' "$collapsed" | LC_ALL=C sort -u | paste -sd, -)
 
     count=$(echo "$ALLOWED_IPS" | tr ',' '\n' | grep -c . || true)
-    log INFO "AllowedIPs: ${count} валидных IPv4-префиксов"
+    log INFO "AllowedIPs: ${before} → ${count} IPv4-префиксов после точного объединения CIDR"
 
     if [[ -z "$ALLOWED_IPS" ]]; then
         rm -f "$tmp"

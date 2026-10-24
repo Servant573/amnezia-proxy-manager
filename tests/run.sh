@@ -104,7 +104,7 @@ curl() {
 PROXY_IPS="203.0.113.10 203.0.113.11"
 IPLIST_URLS="https://lists.example.test/ipv4"
 build_allowed_ips >/dev/null
-[[ ",$ALLOWED_IPS," == *",203.0.113.10/32,"* ]] || fail "IPv4 прокси не добавлен в AllowedIPs"
+[[ ",$ALLOWED_IPS," == *",203.0.113.10/31,"* ]] || fail "IPv4 прокси не объединены в AllowedIPs"
 [[ ",$ALLOWED_IPS," == *",1.1.1.1/32,"* ]] || fail "туннельный DNS не добавлен в AllowedIPs"
 [[ ",$ALLOWED_IPS," == *",198.51.100.0/24,"* ]] || fail "валидный CIDR списка потерян"
 [[ "$ALLOWED_IPS" != *"999.1.1.1"* ]] || fail "невалидный IPv4 попал в AllowedIPs"

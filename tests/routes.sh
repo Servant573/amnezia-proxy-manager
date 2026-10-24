@@ -45,6 +45,20 @@ for url in https://lists.test/empty https://lists.test/failure 'https://lists.te
     if ( ALLOWED_IPS=''; IPLIST_URLS="$url"; build_allowed_ips >/dev/null 2>&1 ); then fail 'bad URL silently widened/degraded routes'; fi
     cmp "$ALLOWED_IPS_CACHE" "$TEST_TMP/previous" || fail 'failed fetch overwrote cache'
 done
+ALLOWED_IPS='192.0.2.0 192.0.2.1 192.0.2.2 192.0.2.3 198.51.100.7/24'
+IPLIST_URLS='https://lists.test/one'
+build_allowed_ips > "$TEST_TMP/collapse.log"
+[[ "$ALLOWED_IPS" == '1.1.1.1/32,192.0.2.0/30,192.0.2.7/32,198.51.100.0/24,203.0.113.10/32' ]] || fail 'exact aggregation or normalization broken'
+grep -q '9 → 5 IPv4' "$TEST_TMP/collapse.log" || fail 'aggregation counts missing'
+cmp <(tr ',' '\n' <<< "$ALLOWED_IPS") "$ALLOWED_IPS_CACHE" || fail 'cache differs from optimized routes'
+generate_wg_config >/dev/null
+grep -Fxq "AllowedIPs = $ALLOWED_IPS" "$WG_TMP_CONF" || fail 'WG config differs from optimized routes'
+cp "$ALLOWED_IPS_CACHE" "$TEST_TMP/previous"
+if ( python3() { return 1; }; build_allowed_ips >/dev/null 2>&1 ); then fail 'optimizer failure ignored'; fi
+cmp "$ALLOWED_IPS_CACHE" "$TEST_TMP/previous" || fail 'optimizer failure overwrote cache'
+ALLOWED_IPS='0.0.0.0/1 128.0.0.0/1'; IPLIST_URLS=''
+build_allowed_ips >/dev/null
+[[ "$ALLOWED_IPS" == 0.0.0.0/0 ]] || fail 'two halves did not collapse to full VPN'
 ALLOWED_IPS=0.0.0.0/0; IPLIST_URLS=''
 build_allowed_ips >/dev/null
 generate_wg_config >/dev/null
