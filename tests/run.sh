@@ -267,4 +267,105 @@ assert_eq 143 "$startup_status" "TERM during startup"
 [[ -f "${TEST_TMP}/startup-runtime/cleaned" ]] || fail "startup resource ownership was lost on TERM"
 assert_file_missing "${TEST_TMP}/startup-runtime/manager.pid"
 
+# VPN_LINK: туннель настраивается из ссылки vpn://, ручные VPN-поля игнорируются.
+VPRIV="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+VPUB="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE="
+VPSK="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAI="
+make_vpn_link() {
+    python3 - "$1" <<'PY'
+import sys, json, base64, zlib, struct
+mode = sys.argv[1]
+priv = base64.b64encode(b"\x00" * 31 + b"\x00").decode()
+pub = base64.b64encode(b"\x00" * 31 + b"\x01").decode()
+psk = base64.b64encode(b"\x00" * 31 + b"\x02").decode()
+cfg = {
+    "containers": [{
+        "container": "amnezia-awg",
+        "awg": {
+            "Jc": "6", "Jmin": "10", "Jmax": "50",
+            "S1": "17", "S2": "134", "S3": "46", "S4": "1",
+            "H1": "1", "H2": "2", "H3": "3", "H4": "4",
+            "port": "51820",
+            "last_config": json.dumps({
+                "config": "[Interface]\nAddress = 10.8.0.2/32\nPrivateKey = %s\n\n[Peer]\nPublicKey = %s\nPresharedKey = %s\nEndpoint = 198.51.100.1:51820\nAllowedIPs = 0.0.0.0/0, ::/0\nPersistentKeepalive = 25\n" % (priv, pub, psk),
+                "client_priv_key": priv,
+                "server_pub_key": pub,
+                "psk_key": psk,
+                "client_ip": "10.8.0.2",
+                "allowed_ips": ["0.0.0.0/0", "::/0"],
+                "hostName": "198.51.100.1",
+                "port": 51820,
+                "persistent_keep_alive": "25",
+                "mtu": "1280",
+            }),
+        },
+    }],
+    "defaultContainer": "amnezia-awg",
+    "dns1": "1.1.1.1",
+    "dns2": "1.0.0.1",
+}
+raw = json.dumps(cfg).encode()
+payload = struct.pack(">I", len(raw)) + zlib.compress(raw) if mode == "compressed" else raw
+print("vpn://" + base64.urlsafe_b64encode(payload).decode().rstrip("="))
+PY
+}
+VPN_COMPRESSED=$(make_vpn_link compressed)
+VPN_PLAIN=$(make_vpn_link plain)
+
+printf '%s\n' \
+    'WG_INTERFACE=amn-test' \
+    'VPN_LINK='"$VPN_COMPRESSED" \
+    'PRIVATE_KEY='"$VPSK" \
+    'ADDRESS=10.9.9.9/32' \
+    'PUBLIC_KEY='"$VPSK" \
+    'PRESHARED_KEY=' \
+    'ENDPOINT=203.0.113.99:51820' \
+    'DNS=8.8.8.8' \
+    'WG_MTU=auto' \
+    'PERSISTENTKEEPALIVE=15' \
+    'ALLOWED_IPS=192.0.2.0/24' \
+    'PROXY_STRING=203.0.113.1:3128:user:pa:ss' > "$CONFIG_FILE"
+chmod 600 "$CONFIG_FILE"
+load_config >/dev/null
+assert_eq "$VPRIV" "$PRIVATE_KEY" "VPN_LINK PRIVATE_KEY"
+assert_eq "$VPUB" "$PUBLIC_KEY" "VPN_LINK PUBLIC_KEY"
+assert_eq "$VPSK" "$PRESHARED_KEY" "VPN_LINK PRESHARED_KEY"
+assert_eq "10.8.0.2/32" "$ADDRESS" "VPN_LINK ADDRESS"
+assert_eq "198.51.100.1:51820" "$ENDPOINT" "VPN_LINK ENDPOINT"
+assert_eq "6" "$Jc" "VPN_LINK Jc"
+assert_eq "17" "$S1" "VPN_LINK S1"
+assert_eq "192.0.2.0/24" "$ALLOWED_IPS" "VPN_LINK не переопределяет ALLOWED_IPS"
+assert_eq "8.8.8.8" "$DNS" "VPN_LINK не переопределяет DNS"
+assert_eq "auto" "$WG_MTU" "VPN_LINK не переопределяет WG_MTU"
+assert_eq "15" "$PERSISTENTKEEPALIVE" "VPN_LINK не переопределяет PERSISTENTKEEPALIVE"
+
+printf '%s\n' \
+    'WG_INTERFACE=amn-test' \
+    'VPN_LINK='"$VPN_PLAIN" \
+    'PROXY_STRING=203.0.113.1:3128:user:pa:ss' > "$CONFIG_FILE"
+chmod 600 "$CONFIG_FILE"
+load_config >/dev/null
+assert_eq "$VPRIV" "$PRIVATE_KEY" "VPN_LINK (plain) PRIVATE_KEY"
+assert_eq "198.51.100.1:51820" "$ENDPOINT" "VPN_LINK (plain) ENDPOINT"
+
+printf '%s\n' \
+    'WG_INTERFACE=amn-test' \
+    'VPN_LINK=vpn://aGVsbG8=' \
+    'PROXY_STRING=203.0.113.1:3128:user:pa:ss' > "$CONFIG_FILE"
+chmod 600 "$CONFIG_FILE"
+if ( load_config ) >/dev/null 2>&1; then fail "VPN_LINK с невалидным payload принят"; fi
+
+NO_AWG_LINK=$(python3 - <<'PY'
+import base64, json
+raw = json.dumps({"containers": [{"container": "amnezia-openvpn", "openvpn": {}}]}).encode()
+print("vpn://" + base64.urlsafe_b64encode(raw).decode().rstrip("="))
+PY
+)
+printf '%s\n' \
+    'WG_INTERFACE=amn-test' \
+    'VPN_LINK='"$NO_AWG_LINK" \
+    'PROXY_STRING=203.0.113.1:3128:user:pa:ss' > "$CONFIG_FILE"
+chmod 600 "$CONFIG_FILE"
+if ( load_config ) >/dev/null 2>&1; then fail "VPN_LINK без amnezia-awg принят"; fi
+
 echo "OK: все тесты пройдены"

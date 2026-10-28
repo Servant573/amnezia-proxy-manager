@@ -36,6 +36,22 @@ install -m 600 config.example ~/.config/amnezia-proxy-manager/config
 Если сервер не использует PSK, оставьте `PRESHARED_KEY=` пустым.
 Описание параметров есть в [config.example](config.example).
 
+Вместо ручного заполнения полей VPN можно указать ссылку `vpn://` (экспорт
+Amnezia/серверной панели). Если `VPN_LINK` не пуст, из ссылки берутся ключи,
+адрес, endpoint и обфускация, а поля `PRIVATE_KEY`, `ADDRESS`, `PUBLIC_KEY`,
+`ENDPOINT` можно оставить пустыми — их ручные значения игнорируются. Роутинг
+(`ALLOWED_IPS`, `IPLIST_URLS`), `DNS`, `WG_MTU` и `PERSISTENTKEEPALIVE` из
+ссылки не берутся и задаются как обычно:
+
+```ini
+VPN_LINK="vpn://AAAKP3…"
+PROXY_STRING="host:port:user:password"
+```
+
+Для этого нужен `python3` (и так входит в зависимости). Поддерживаются как
+обычный формат `vpn://` + base64url(JSON), так и сжатый zlib-вариант,
+который выдаёт `amneziawg-installer`.
+
 ```bash
 ./amnezia-proxy-manager config validate
 sudo -v

@@ -1,6 +1,13 @@
 # Интерфейс и ключи AmneziaWG
 # После заполнения: ./amnezia-proxy-manager config validate
 WG_INTERFACE=amnw0
+# Если задан VPN_LINK (ссылка vpn:// из Amnezia/серверной панели), туннель
+# настраивается из неё: ключи, адрес, endpoint и обфускация берутся из ссылки,
+# а перечисленные ниже поля VPN можно оставить пустыми. Ручные значения
+# PRIVATE_KEY/ADDRESS/PUBLIC_KEY/ENDPOINT при этом игнорируются. Роутинг
+# (ALLOWED_IPS/IPLIST_URLS), DNS, WG_MTU и PERSISTENTKEEPALIVE из ссылки не
+# берутся и настраиваются как обычно.
+VPN_LINK=
 PRIVATE_KEY="replace-me"
 ADDRESS=10.0.0.2/32
 # Пусто — сохранить системный DNS. Если указан IPv4 DNS, его /32 автоматически

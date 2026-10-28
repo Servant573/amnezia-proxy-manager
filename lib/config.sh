@@ -19,11 +19,43 @@ strip_quotes() {
     printf '%s' "$s"
 }
 
+# Расшифровывает VPN_LINK и заполняет поля туннеля. Вызывается до применения
+# defaults, чтобы ссылка полностью переопределяла ручные значения, а пропущенные
+# ею параметры получили defaults ниже по коду.
+apply_vpn_link() {
+    [[ -n "${VPN_LINK:-}" ]] || return 0
+    command -v python3 >/dev/null 2>&1 || die "python3 не найден; нужен для декодирования VPN_LINK"
+    local out
+    if ! out=$(printf '%s' "$VPN_LINK" | python3 "$PROJECT_ROOT/lib/vpn_link.py"); then
+        die "Не удалось декодировать VPN_LINK"
+    fi
+
+    # Роутинг (ALLOWED_IPS/IPLIST_URLS) и тюнинг (DNS, WG_MTU,
+    # PERSISTENTKEEPALIVE) остаются пользовательскими и не берутся из ссылки:
+    # ссылка задаёт только «личность» туннеля и обфускацию.
+    PRIVATE_KEY=""; PUBLIC_KEY=""; PRESHARED_KEY=""; ADDRESS=""; ENDPOINT=""
+    Jc=""; Jmin=""; Jmax=""; S1=""; S2=""; S3=""; S4=""
+    H1=""; H2=""; H3=""; H4=""; I1=""; I2=""; I3=""; I4=""; I5=""
+
+    local line key value
+    while IFS= read -r line; do
+        [[ "$line" == *=* ]] || continue
+        key="${line%%=*}"
+        value="${line#*=}"
+        case "$key" in
+            PRIVATE_KEY|PUBLIC_KEY|PRESHARED_KEY|ADDRESS|ENDPOINT|Jc|Jmin|Jmax|S1|S2|S3|S4|H1|H2|H3|H4|I1|I2|I3|I4|I5)
+                printf -v "$key" '%s' "$value" ;;
+        esac
+    done <<< "$out"
+    log INFO "Туннель настроен из VPN_LINK"
+}
+
 CONFIG_KEYS='WG_INTERFACE PRIVATE_KEY ADDRESS DNS PUBLIC_KEY ENDPOINT PERSISTENTKEEPALIVE
 Jc Jmin Jmax S1 S2 S3 S4 H1 H2 H3 H4 I1 I2 I3 I4 I5 PRESHARED_KEY
 PROXY_STRING LOCAL_HTTP_PORT LOCAL_SOCKS_PORT ALLOWED_IPS IPLIST_URLS WG_MTU
 HEALTHCHECK_URL STARTUP_HEALTHCHECK PROXY_MAXSEG PROXY_PARENT_RETRIES BLOCK_IPV6
-SANDBOX_NETNS_NAME SANDBOX_VETH_SUBNET SANDBOX_HIDE_PATHS SANDBOX_NO_PROXY SANDBOX_EXPECTED_EXIT_IP'
+SANDBOX_NETNS_NAME SANDBOX_VETH_SUBNET SANDBOX_HIDE_PATHS SANDBOX_NO_PROXY SANDBOX_EXPECTED_EXIT_IP
+VPN_LINK'
 
 load_config() {
     [[ -f "$CONFIG_FILE" ]] || die "Конфиг не найден: $CONFIG_FILE"
@@ -63,12 +95,14 @@ load_config() {
         [[ "$value" != *[[:cntrl:]]* ]] || die "Конфиг, строка $number: управляющие символы запрещены"
         if [[ -z "$value" ]]; then
             case "$key" in
-                DNS|PRESHARED_KEY|ALLOWED_IPS|IPLIST_URLS|PROXY_MAXSEG|I1|I2|I3|I4|I5|SANDBOX_HIDE_PATHS|SANDBOX_NO_PROXY|SANDBOX_EXPECTED_EXIT_IP) ;;
+                DNS|PRESHARED_KEY|ALLOWED_IPS|IPLIST_URLS|PROXY_MAXSEG|I1|I2|I3|I4|I5|SANDBOX_HIDE_PATHS|SANDBOX_NO_PROXY|SANDBOX_EXPECTED_EXIT_IP|PRIVATE_KEY|ADDRESS|PUBLIC_KEY|ENDPOINT|VPN_LINK) ;;
                 *) die "Конфиг, строка $number: $key не должен быть пустым" ;;
             esac
         fi
         printf -v "$key" '%s' "$value"
     done < "$CONFIG_FILE"
+
+    apply_vpn_link
 
     : "${WG_INTERFACE:=}" "${PRIVATE_KEY:=}" "${ADDRESS:=}"
     : "${PUBLIC_KEY:=}" "${ENDPOINT:=}" "${PROXY_STRING:=}"
@@ -101,6 +135,7 @@ load_config() {
     : "${SANDBOX_HIDE_PATHS:=}"
     : "${SANDBOX_NO_PROXY:=}"
     : "${SANDBOX_EXPECTED_EXIT_IP:=}"
+    : "${VPN_LINK:=}"
 
     validate_config_values
 
