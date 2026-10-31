@@ -10,7 +10,7 @@ with tempfile.TemporaryDirectory() as directory:
     base = Path(directory)
     source = base / 'source'
     source.mkdir()
-    for item in ('Makefile', 'apm', 'apm-gui', 'amnezia-proxy-manager', 'config.example', 'README.md', 'AUDIT.md', 'bin', 'lib', 'docs', 'scripts'):
+    for item in ('Makefile', 'apm', 'apm-gui', 'amnezia-proxy-manager', 'config.example', 'README.md', 'LICENSE', 'CHANGELOG.md', 'AUDIT.md', 'bin', 'lib', 'docs', 'scripts'):
         src = ROOT / item
         if src.is_dir():
             shutil.copytree(src, source / item)

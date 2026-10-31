@@ -1,3 +1,5 @@
 /.idea/
 /.local-proxy/
 /*.conf
+/dist/
+__pycache__/

@@ -60,3 +60,22 @@ jobs:
           persist-credentials: false
       - name: Run isolated test suite
         run: bash tests/docker.sh
+
+  release:
+    name: Release archive
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Check Python 3.11 syntax compatibility
+        run: python3 tests/python-syntax.py
+      - name: Verify reproducible archive and installation
+        run: make check-dist
+      - name: Build archive and verify SHA256
+        run: |
+          make dist
+          cd dist
+          sha256sum --check ./*.sha256

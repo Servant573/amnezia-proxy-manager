@@ -17,3 +17,7 @@
 !AUDIT.md
 !apm
 !apm-gui
+!LICENSE
+!CHANGELOG.md
+**/__pycache__/
+**/*.pyc

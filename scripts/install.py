@@ -24,8 +24,11 @@ FILES.update({f'lib/{name}': f'lib/{name}' for name in LIB_FILES})
 FILES.update({'config.example': 'share/config.example', 'README.md': 'share/doc/README.md',
               'docs/REFERENCE.md': 'share/doc/docs/REFERENCE.md',
               'docs/CONFIGURATION.md': 'share/doc/docs/CONFIGURATION.md',
-              'docs/INSTALLATION.md': 'share/doc/docs/INSTALLATION.md'})
+              'docs/INSTALLATION.md': 'share/doc/docs/INSTALLATION.md',
+              'docs/RELEASING.md': 'share/doc/docs/RELEASING.md'})
 FILES = {dest: source for source, dest in FILES.items()}
+FILES['share/doc/LICENSE'] = 'LICENSE'
+FILES['share/doc/CHANGELOG.md'] = 'CHANGELOG.md'
 FILES['share/doc/config.example'] = 'config.example'
 FILES['share/doc/AUDIT.md'] = 'AUDIT.md'
 for task in ('INSTALLATION', 'COMPONENT_MODES', 'MACOS', 'GO_MIGRATION', 'LOCAL_ISOLATION'):
@@ -254,7 +257,7 @@ def main():
         finally:
             if temporary is not None and temporary.exists():
                 shutil.rmtree(temporary)
-        print(f'Установлено: {bindir / 'apm'} (версия файлов {release_id})')
+        print(f"Установлено: {bindir / 'apm'} (версия файлов {release_id})")
 
 
 if __name__ == '__main__':

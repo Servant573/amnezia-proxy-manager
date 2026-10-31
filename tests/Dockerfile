@@ -9,6 +9,6 @@ COPY lib/ lib/
 COPY tests/ tests/
 COPY scripts/ scripts/
 COPY docs/ docs/
-COPY Makefile README.md AUDIT.md ./
+COPY Makefile README.md AUDIT.md LICENSE CHANGELOG.md ./
 RUN chmod -R go-w /app && chmod +x amnezia-proxy-manager bin/amnezia-proxy
 CMD ["bash", "tests/docker-entrypoint.sh"]
