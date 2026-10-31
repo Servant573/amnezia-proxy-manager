@@ -13,8 +13,10 @@
 !scripts/
 !scripts/**
 !docs/
-!docs/**
-!AUDIT.md
+!docs/CONFIGURATION.md
+!docs/REFERENCE.md
+!docs/INSTALLATION.md
+!docs/RELEASING.md
 !apm
 !apm-gui
 !LICENSE

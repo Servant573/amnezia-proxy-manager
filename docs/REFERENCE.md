@@ -337,7 +337,7 @@ Sandbox явно восстанавливает пользовательские
 host-стороне veth (`10.200.0.1/32` по умолчанию), default-route отсутствует;
 назначение адреса /30 также создаёт connected route. Это пока не запрещает
 доступ к другим сервисам на host-адресе veth: отдельный INPUT/FORWARD guard
-запланирован в [задаче локальной изоляции](tasks/LOCAL_ISOLATION.md).
+планируется отдельно.
 Forwarder (`lib/sandbox_forwarder.py`, raw TCP relay) слушает на host-стороне veth
 и проксирует на loopback-порты 3proxy. Агент использует прокси по адресу
 `10.200.0.1:$LOCAL_HTTP_PORT` / `socks5h://10.200.0.1:$LOCAL_SOCKS_PORT` (переменные
@@ -502,7 +502,7 @@ IPv6 включается sysctl только внутри сетевого пр
 Вне Docker аналогичный сетевой тест: `bash tests/netns.sh` (нужны разрешённые
 user/network namespaces).
 
-Дальнейшее направление развития описано в [AUDIT.md](../AUDIT.md).
+
 
 ## Независимые компоненты
 

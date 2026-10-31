@@ -66,7 +66,6 @@ export ALL_PROXY=socks5h://127.0.0.1:8080
 - [Технический справочник: зависимости, защита, sandbox](docs/REFERENCE.md).
 - [Подготовка релиза](docs/RELEASING.md).
 - [Лицензия MIT](LICENSE).
-- [План развития](AUDIT.md).
 
 ## Разработка
 

@@ -17,10 +17,15 @@ with tempfile.TemporaryDirectory() as directory:
     base = Path(directory)
     source = base / 'source'
     names = set(FILES.values()) | {'Makefile', 'scripts/install.py', 'scripts/release.py', 'LICENSE', 'CHANGELOG.md'}
+    assert not any('REVIEW' in name or 'AUDIT' in name or name.startswith('docs/tasks/') for name in names)
     for name in names:
         out = source / name
         out.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / name, out)
+    for name in ('AUDIT.md', 'REVIEW_demo.md', 'FIX_REVIEW_demo.md', 'docs/tasks/private-plan.md'):
+        path = source / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('synthetic-internal-document')
     (source / 'local.conf').write_text('PRIVATE_KEY=synthetic-secret')
     (source / '.git').mkdir()
     (source / '.git/private').write_text('synthetic-git-data')

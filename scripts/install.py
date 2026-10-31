@@ -30,9 +30,6 @@ FILES = {dest: source for source, dest in FILES.items()}
 FILES['share/doc/LICENSE'] = 'LICENSE'
 FILES['share/doc/CHANGELOG.md'] = 'CHANGELOG.md'
 FILES['share/doc/config.example'] = 'config.example'
-FILES['share/doc/AUDIT.md'] = 'AUDIT.md'
-for task in ('INSTALLATION', 'COMPONENT_MODES', 'MACOS', 'GO_MIGRATION', 'LOCAL_ISOLATION'):
-    FILES[f'share/doc/docs/tasks/{task}.md'] = f'docs/tasks/{task}.md'
 EXECUTABLES = {'apm', 'apm-gui', 'amnezia-proxy-manager', 'bin/amnezia-proxy', 'bin/amnezia-proxy-gui'}
 
 

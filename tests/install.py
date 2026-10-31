@@ -3,19 +3,23 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'scripts'))
+from install import FILES  # noqa: E402
 with tempfile.TemporaryDirectory() as directory:
     base = Path(directory)
     source = base / 'source'
     source.mkdir()
-    for item in ('Makefile', 'apm', 'apm-gui', 'amnezia-proxy-manager', 'config.example', 'README.md', 'LICENSE', 'CHANGELOG.md', 'AUDIT.md', 'bin', 'lib', 'docs', 'scripts'):
-        src = ROOT / item
-        if src.is_dir():
-            shutil.copytree(src, source / item)
-        else:
-            shutil.copy2(src, source / item)
+    # Reproduce only the installable source tree, never internal audit/plans.
+    names = set(FILES.values()) | {'Makefile', 'scripts/install.py', 'scripts/release.py'}
+    assert not any('REVIEW' in name or 'AUDIT' in name or name.startswith('docs/tasks/') for name in names)
+    for name in names:
+        out = source / name
+        out.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / name, out)
     prefix = base / "prefix with 'quote"
     # Paths must not inherit GitHub runner or developer-shell configuration.
     env = dict(os.environ, HOME=str(base / 'home'),
