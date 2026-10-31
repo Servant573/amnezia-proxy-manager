@@ -7,6 +7,7 @@ bash tests/run.sh
 bash tests/component-modes.sh
 bash tests/security.sh
 bash tests/behavior.sh
+bash tests/runtime-inspection.sh
 bash tests/ipv6.sh
 bash tests/routes.sh
 python3 tests/route-collapse.py

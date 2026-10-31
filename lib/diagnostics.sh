@@ -25,7 +25,10 @@ do_test() {
 diagnose_runtime() {
     local mode="$1" failures=0 unknown=0 config_result owner_iface owner_index owner_boot
     local route actual_endpoint latest now age endpoint_output owned=0 proxy_ready=0 guard_status
-    local actual recommended field value active_http active_socks active_parent active_port
+    local actual recommended field value
+    # Endpoint is filled only by successful inspection of the running peer.
+    ENDPOINT_IPS=""
+    PUBLIC_KEY=""
     if [[ -e "$SESSION_FILE" ]]; then
         session_load || { echo "Сессия: UNKNOWN — повреждено состояние"; return 2; }
     else
@@ -77,14 +80,7 @@ diagnose_runtime() {
         echo "VPN: DISABLED"
     fi
     if (( ${PROXY_ON:-1} )); then
-        active_http=$(awk '$1 == "proxy" {for(i=2;i<=NF;i++) if ($i ~ /^-p[0-9]+$/) {print substr($i,3); exit}}' "$PROXY_CFG" 2>/dev/null || true)
-        active_socks=$(awk '$1 == "socks" {for(i=2;i<=NF;i++) if ($i ~ /^-p[0-9]+$/) {print substr($i,3); exit}}' "$PROXY_CFG" 2>/dev/null || true)
-        active_parent=$(proxy_configured_parent_host || true)
-        active_port=$(awk '$1 == "parent" {print $5; exit}' "$PROXY_CFG" 2>/dev/null || true)
-        if is_uint_between "$active_http" 1 65535 && is_uint_between "$active_socks" 1 65535 &&
-            is_ipv4 "$active_parent" && is_uint_between "$active_port" 1 65535; then
-            LOCAL_HTTP_PORT="$active_http"; LOCAL_SOCKS_PORT="$active_socks"
-            PROXY_CONNECT_HOST="$active_parent"; PROXY_PORT="$active_port"
+        if read_active_proxy_state; then
             echo "Активный upstream: $PROXY_CONNECT_HOST:$PROXY_PORT"
         else
             echo 'Активная конфигурация 3proxy: отсутствует/повреждена'
@@ -174,6 +170,8 @@ diagnose_runtime() {
                 if is_uint_between "$actual" 1 65535 && (( actual > recommended )); then
                     echo 'MTU: WARN — фактическое значение выше оценки'
                 fi
+            else
+                echo 'MTU: оценка underlay UNKNOWN — фактический endpoint или маршрут недоступен'
             fi
         fi
     fi

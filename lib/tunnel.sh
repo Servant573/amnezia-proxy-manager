@@ -128,7 +128,8 @@ underlay_mtu_for_ipv4() {
 
 recommended_awg_mtu() {
     local ip underlay
-    ip="${ENDPOINT_IPS%% *}"
+    ip="${ENDPOINT_IPS:-}"
+    ip="${ip%% *}"
     [[ -n "$ip" ]] || return 1
     underlay=$(underlay_mtu_for_ipv4 "$ip") || return 1
     (( underlay > 80 )) || return 1

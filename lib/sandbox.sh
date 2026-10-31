@@ -71,6 +71,9 @@ check_sandbox_deps() {
     command -v python3 >/dev/null 2>&1 || die "python3 не найден"
     command -v setpriv >/dev/null 2>&1 || die "setpriv не найден (util-linux)"
     command -v curl    >/dev/null 2>&1 || die "curl не найден"
+    # sudo tickets may be scoped to the terminal running start. Authorize here
+    # before taking locks or creating resources, so guard inspection can work.
+    sudo -v || die "Не удалось получить sudo-доступ для sandbox; запуск отменён"
 }
 
 ipv4_to_int() {
@@ -93,17 +96,11 @@ sandbox_addrs() {
     SANDBOX_NS_IP=$(ipv4_from_int $((base + 2)))
 }
 
-# Активные порты читаем из runtime-конфига 3proxy, а не из пользовательского
-# конфига: правки конфига после start не должны менять цель forwarder.
+# Keep the historical helper name for callers; restore upstream before guard.
 read_active_proxy_ports() {
-    local http socks
-    [[ -r "$PROXY_CFG" ]] || die "Runtime-конфиг 3proxy не найден; сначала выполните start"
-    http=$(awk '$1 == "proxy" {for(i=2;i<=NF;i++) if ($i ~ /^-p[0-9]+$/) {print substr($i,3); exit}}' "$PROXY_CFG")
-    socks=$(awk '$1 == "socks" {for(i=2;i<=NF;i++) if ($i ~ /^-p[0-9]+$/) {print substr($i,3); exit}}' "$PROXY_CFG")
-    is_uint_between "$http" 1 65535 && is_uint_between "$socks" 1 65535 \
-        || die "Не удалось определить активные порты 3proxy из $PROXY_CFG"
-    SANDBOX_HTTP_PORT="$http"
-    SANDBOX_SOCKS_PORT="$socks"
+    read_active_proxy_state || die "Runtime-конфиг 3proxy отсутствует или повреждён; выполните diagnose"
+    SANDBOX_HTTP_PORT="$LOCAL_HTTP_PORT"
+    SANDBOX_SOCKS_PORT="$LOCAL_SOCKS_PORT"
 }
 
 sandbox_netns_create() {
@@ -455,12 +452,21 @@ do_run() {
         read -r owner_iface _ _ < "$TUNNEL_OWNER_FILE" || true
         [[ -n "$owner_iface" ]] && WG_INTERFACE="$owner_iface"
     fi
+    read_active_proxy_ports
     if (( ${VPN_ON:-1} )); then
         is_tunnel_up || die "Туннель не поднят; сначала выполните start"
-        guard_is_active || die "VPN/proxy guard не подтверждён"
+        local guard_status
+        if guard_is_active; then
+            :
+        else
+            guard_status=$?
+            if (( guard_status == 2 )); then
+                die "VPN/proxy guard: проверка недоступна; проверьте sudo-доступ в этом терминале, nft и python3"
+            fi
+            die "VPN/proxy guard: правило отсутствует или не соответствует активному VPN/upstream; выполните diagnose"
+        fi
     fi
 
-    read_active_proxy_ports
     [[ ! -e "$FW_PID_FILE" ]] || die "Осталось состояние forwarder; сначала выполните stop"
     sandbox_netns_create
     sandbox_start_forwarder

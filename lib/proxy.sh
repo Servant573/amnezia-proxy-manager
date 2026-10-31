@@ -184,3 +184,17 @@ proxy_prepare_upstream() {
         log INFO "Upstream $PROXY_HOST закреплён за IPv4 $PROXY_CONNECT_HOST на время запуска"
     fi
 }
+
+# Restore only non-secret active fields, independent of user configuration.
+read_active_proxy_state() {
+    local http socks parent port
+    [[ -r "$PROXY_CFG" ]] || return 1
+    http=$(awk '$1 == "proxy" {for(i=2;i<=NF;i++) if ($i ~ /^-p[0-9]+$/) {print substr($i,3); exit}}' "$PROXY_CFG") || return 1
+    socks=$(awk '$1 == "socks" {for(i=2;i<=NF;i++) if ($i ~ /^-p[0-9]+$/) {print substr($i,3); exit}}' "$PROXY_CFG") || return 1
+    parent=$(proxy_configured_parent_host) || return 1
+    port=$(awk '$1 == "parent" {print $5; exit}' "$PROXY_CFG") || return 1
+    is_uint_between "$http" 1 65535 && is_uint_between "$socks" 1 65535 &&
+        [[ "$http" != "$socks" ]] && is_ipv4 "$parent" && is_uint_between "$port" 1 65535 || return 1
+    LOCAL_HTTP_PORT="$http"; LOCAL_SOCKS_PORT="$socks"
+    PROXY_CONNECT_HOST="$parent"; PROXY_PORT="$port"
+}
