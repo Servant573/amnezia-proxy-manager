@@ -1,6 +1,23 @@
 # Задача: устанавливаемая Linux-утилита
 
-Статус: запланировано, реализация не начата. Дата: 2026-10-31.
+Статус: установочная поставка (шаги 1–3) и базовая защита обновления реализованы
+2026-10-31. Инструкция: [установка](../INSTALLATION.md).
+
+Основные команды — apm/apm-gui; длинные имена сохранены как дополнительные.
+Каталоги и AMNEZIA_PROXY_* сохраняются без миграции.
+Поддерживаются PREFIX/BINDIR/LIBEXECDIR/DATADIR, DESTDIR, install/uninstall,
+неизменяемые release-каталоги с атомарным current, фиксация физических путей,
+receipt с SHA256 и отказ при runtime-состоянии. Проверены установленная копия
+без checkout, настоящий proxy-only lifecycle, обновление и удаление, конфликты
+файлов и ошибка копирования. Docker-runner дополнен тестом установки; локально
+полный Docker-прогон недоступен из-за отсутствующего Docker daemon.
+
+Реализованы также config init и doctor: приватное атомарное создание конфига,
+защита от перезаписи/симлинков, офлайн-проверка условных зависимостей. Их тесты
+выполняются для checkout и установленной копии без доступа к исходникам.
+
+Следующие шаги: расширенная приёмка установленной версии
+с настоящими AWG/GUI, сборка релизного архива. Публикация релиза не выполнялась.
 
 ## Цель и первая поставка
 
@@ -36,8 +53,10 @@ make install PREFIX=/usr DESTDIR=/tmp/amnezia-package
 Предлагаемая раскладка:
 
 ```text
-$PREFIX/bin/amnezia-proxy-manager             публичный launcher
-$PREFIX/bin/amnezia-proxy-gui                 публичный GUI launcher
+$PREFIX/bin/apm                               основной CLI
+$PREFIX/bin/apm-gui                           основной GUI launcher
+$PREFIX/bin/amnezia-proxy-manager             дополнительное имя CLI
+$PREFIX/bin/amnezia-proxy-gui                 дополнительное имя GUI
 $PREFIX/libexec/amnezia-proxy-manager/
     amnezia-proxy-manager                    внутренний launcher
     bin/amnezia-proxy                        основной CLI
@@ -97,7 +116,7 @@ $PREFIX/share/doc/amnezia-proxy-manager/
 
 ## 4. Добавить config init
 
-- `amnezia-proxy-manager config init` создаёт шаблон в выбранном месте:
+- `apm config init` создаёт шаблон в выбранном месте:
   `--config`, AMNEZIA_PROXY_CONFIG, XDG-путь; существующий конфиг
   не перезаписывается.
 - Новый приватный каталог создаётся с правами 700, файл — сразу с 600.

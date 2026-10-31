@@ -7,3 +7,13 @@
 !lib/**
 !tests/
 !tests/**
+
+!Makefile
+!README.md
+!scripts/
+!scripts/**
+!docs/
+!docs/**
+!AUDIT.md
+!apm
+!apm-gui

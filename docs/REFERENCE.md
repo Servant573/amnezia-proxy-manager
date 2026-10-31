@@ -6,6 +6,8 @@
 
 ## Зависимости
 
+Для установки нужны `make` и `python3`; инструкция — [INSTALLATION.md](INSTALLATION.md).
+
 Linux с `/proc`, Bash 4.1+, AmneziaWG (`awg`, `awg-quick`), `3proxy`,
 `curl`, `ip`/`ss` (iproute2), `nft` (nftables), `flock` (util-linux),
 `timeout` (coreutils), `sudo`, `python3`. При настроенном DNS нужен `resolvconf`.
@@ -300,7 +302,7 @@ WG_MTU=auto
 Для подробной проверки выполните:
 
 ```bash
-./amnezia-proxy-manager diagnose
+./apm diagnose
 ```
 
 Поведение основано на штатном расчёте MTU в
@@ -315,9 +317,9 @@ Codex и т.п.) физически не мог видеть сетевую то
 запущенный `start`: туннель, 3proxy и guard должны работать.
 
 ```bash
-./amnezia-proxy-manager start
-./amnezia-proxy-manager run -- codex --version
-./amnezia-proxy-manager run -- bash -c 'ip link; ip route; curl -x http://10.200.0.1:8081 https://api.ipify.org'
+./apm start
+./apm run -- codex --version
+./apm run -- bash -c 'ip link; ip route; curl -x http://10.200.0.1:8081 https://api.ipify.org'
 ```
 
 Sandbox явно восстанавливает пользовательские `PATH` и `HOME` после `sudo`,
@@ -399,8 +401,8 @@ Runtime-каталог самого менеджера скрыт: сгенер�
 ключами и паролем upstream недоступны GUI-приложению.
 
 ```bash
-./amnezia-proxy-manager start
-./amnezia-proxy-manager run --gui -- chatgpt \
+./apm start
+./apm run --gui -- chatgpt \
     --no-sandbox --proxy-server=http://10.200.0.1:8081 \
     --disable-quic --force-webrtc-ip-handling-policy=disable_non_proxied_udp
 ```
@@ -408,7 +410,7 @@ Runtime-каталог самого менеджера скрыт: сгенер�
 Для Chromium/Electron эти флаги автоматически добавляет launcher:
 
 ```bash
-./bin/amnezia-proxy-gui -- chatgpt
+./apm-gui -- chatgpt
 ```
 
 Он поддерживает `--config ПУТЬ` и получает адрес из `HTTP_PROXY` уже внутри
@@ -554,3 +556,18 @@ run (включая GUI launcher) запрашивает sudo-авторизац
 проверки дают разные сообщения; оба случая запрещают запуск sandbox.
 Оценка MTU без доступного фактического endpoint отмечается UNKNOWN, остальные
 проверки диагностики продолжаются.
+
+## Проверка окружения перед запуском
+
+`doctor` проверяет Linux, Bash 4.1+ и наличие внешних команд. При корректном
+конфиге учитывает VPN_ON, PROXY_ON, BLOCK_IPV6 и DNS; при отсутствующем конфиге
+проверяет default VPN+proxy и сообщает, что DNS-условия не определены. Невалидный
+конфиг даёт ошибку и проверку зависимостей обоих компонентов.
+
+`doctor --sandbox` дополнительно требует bwrap/setpriv, ip/sudo/python3/curl
+и включённый proxy. Код 0 означает, что проверенные требования выполнены,
+1 — найдены проблемы, 2 — неверные аргументы команды.
+
+doctor не вызывает sudo, не делает сетевых запросов и не пишет файлы. Наличие
+команд не доказывает поддержку AWG kernel module, user namespaces, sudo-права
+или доступность сервера. `diagnose` проверяет уже запущенную сессию.

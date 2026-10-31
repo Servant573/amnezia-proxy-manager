@@ -55,6 +55,7 @@ fi
 mock_root="$TEST_TMP/mock project"
 mkdir -p "$mock_root/bin"
 cp "$PROJECT_ROOT/bin/amnezia-proxy-gui" "$mock_root/bin/amnezia-proxy-gui"
+cp "$PROJECT_ROOT/apm-gui" "$mock_root/apm-gui"
 cat > "$mock_root/amnezia-proxy-manager" <<'SH'
 #!/bin/bash
 set -euo pipefail
@@ -86,7 +87,7 @@ for config_mode in default separate equals; do
         separate) config_args=( --config "$CONFIG_FILE" ) ;;
         equals) config_args=( "--config=$CONFIG_FILE" ) ;;
     esac
-    bash "$mock_root/bin/amnezia-proxy-gui" "${config_args[@]}" -- \
+    bash "$mock_root/apm-gui" "${config_args[@]}" -- \
         /bin/bash -c '
             [[ "$#" == 5 && "$1" == "argument with spaces" ]] || exit 1
             [[ "$2" == --no-sandbox ]] || exit 1

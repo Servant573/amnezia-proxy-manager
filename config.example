@@ -4,7 +4,7 @@ PROXY_ON=true
 # BLOCK_IPV6 управляется отдельно, включая режим только proxy.
 
 # Интерфейс и ключи AmneziaWG
-# После заполнения: ./amnezia-proxy-manager config validate
+# После заполнения: ./apm config validate
 WG_INTERFACE=amnw0
 # Если задан VPN_LINK (ссылка vpn:// из Amnezia/серверной панели), туннель
 # настраивается из неё: ключи, адрес, endpoint и обфускация берутся из ссылки,
@@ -71,7 +71,7 @@ ALLOWED_IPS=""
 # Ошибка скачивания или ответ без валидных адресов запрещает запуск.
 IPLIST_URLS=""
 
-# Песочница для AI-агентов (amnezia-proxy run). Требует уже запущенный start.
+# Песочница для AI-агентов (apm run). Требует уже запущенный start.
 # Для GUI-приложений (Electron и т.п.) используйте run --gui -- <команда>:
 # тот же netns, но с пробросом дисплея/сессии/GPU (см. docs/REFERENCE.md).
 # Имя network namespace; адрес /30 задаёт пару host/namespace для veth.

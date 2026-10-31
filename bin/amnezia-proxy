@@ -1,8 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 
+if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 1) )); then
+    echo 'Требуется Bash 4.1 или новее' >&2
+    exit 2
+fi
+
 VERSION="0.3.0"
-PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 
 # shellcheck source=../lib/paths.sh
 source "${PROJECT_ROOT}/lib/paths.sh"
@@ -30,15 +35,16 @@ source "${PROJECT_ROOT}/lib/sandbox.sh"
 source "${PROJECT_ROOT}/lib/vpn.sh"
 source "${PROJECT_ROOT}/lib/transport.sh"
 source "${PROJECT_ROOT}/lib/session.sh"
+source "${PROJECT_ROOT}/lib/onboarding.sh"
 
 umask 077
 
 usage() {
     cat <<EOF
-amnezia-proxy ${VERSION}
+apm ${VERSION}
 
 Использование:
-  amnezia-proxy [--config ПУТЬ] <команда>
+  apm [--config ПУТЬ] <команда>
 
 Команды:
   start       Запустить туннель и локальные прокси в foreground
@@ -50,6 +56,8 @@ amnezia-proxy ${VERSION}
   logs        Следить за логами менеджера и 3proxy в реальном времени
   run [--gui]  Запустить команду в изолированном sandbox (netns + bwrap);
                --gui пробрасывает дисплей/сессию/GPU для GUI-приложений
+  doctor [--sandbox]  Проверить зависимости без изменения системы
+  config init      Создать конфиг без перезаписи существующего
   config validate  Проверить конфиг без сети и изменения файлов
   help        Показать эту справку
 
@@ -86,7 +94,7 @@ main() {
                 return 0
                 ;;
             -V|--version)
-                echo "amnezia-proxy ${VERSION}"
+                echo "apm ${VERSION}"
                 return 0
                 ;;
             -*)
@@ -102,6 +110,14 @@ main() {
         esac
     done
 
+    if [[ "$command" == doctor ]]; then
+        do_doctor "$@"
+        return $?
+    fi
+    if [[ "$command" == config && $# == 1 && "$1" == init ]]; then
+        do_config_init
+        return $?
+    fi
     if [[ "$command" == config && $# == 1 && "$1" == validate ]]; then
         ( LOG_TO_FILE=0; load_config; echo "Конфиг корректен" )
         return $?

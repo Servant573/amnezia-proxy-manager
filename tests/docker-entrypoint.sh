@@ -1,8 +1,10 @@
 #!/bin/bash
 set -euo pipefail
-for file in amnezia-proxy-manager bin/amnezia-proxy bin/amnezia-proxy-gui lib/*.sh tests/*.sh; do
+for file in apm apm-gui amnezia-proxy-manager bin/amnezia-proxy bin/amnezia-proxy-gui lib/*.sh tests/*.sh; do
     bash -n "$file"
 done
+APM_INSTALL_NETWORK_TEST=1 python3 tests/install.py
+python3 tests/onboarding.py
 bash tests/run.sh
 bash tests/component-modes.sh
 bash tests/security.sh

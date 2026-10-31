@@ -146,8 +146,8 @@ if status_output=$(do_status 2>&1); then
 fi
 [[ "$status_output" == *"Конфиг: НЕ НАЙДЕН"* ]] || fail "status не объяснил отсутствие конфига"
 
-assert_eq "amnezia-proxy ${VERSION}" "$(main --version)" "версия CLI"
-assert_eq "amnezia-proxy ${VERSION}" "$("$LAUNCHER" --version)" "совместимый launcher"
+assert_eq "apm ${VERSION}" "$(main --version)" "версия CLI"
+assert_eq "apm ${VERSION}" "$("$LAUNCHER" --version)" "совместимый launcher"
 main --help | grep -q 'diagnose' || fail "в help отсутствует diagnose"
 main --help | grep -q 'logs' || fail "в help отсутствует logs"
 

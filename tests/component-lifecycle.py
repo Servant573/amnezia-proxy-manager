@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 import time
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(os.environ.get('APM_TEST_PROJECT_ROOT', Path(__file__).resolve().parents[1]))
 with tempfile.TemporaryDirectory() as directory:
     base = Path(directory)
     fake = base / '3proxy'
@@ -44,7 +44,7 @@ STARTUP_HEALTHCHECK=off
                AMNEZIA_PROXY_RUNTIME_DIR=str(base / 'runtime'),
                AMNEZIA_PROXY_STATE_DIR=str(base / 'state'),
                AMNEZIA_PROXY_CACHE_DIR=str(base / 'cache'))
-    cli = str(ROOT / 'bin/amnezia-proxy')
+    cli = str(ROOT / 'apm')
     with (base / 'output').open('w+') as output:
         manager = subprocess.Popen([cli, 'start'], env=env, stdout=output, stderr=output)
         try:

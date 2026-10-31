@@ -1,10 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-# amnezia-proxy-gui — запуск Chromium/Electron GUI-приложения в изолированном sandbox через `amnezia-proxy-manager run --gui`.
+# apm-gui — запуск Chromium/Electron GUI-приложения в изолированном sandbox через `apm run --gui`.
 #
 # Использование:
-#   amnezia-proxy-gui [--config ПУТЬ] -- <приложение> [аргументы...]
+#   apm-gui [--config ПУТЬ] -- <приложение> [аргументы...]
 #
 # Скрипт берёт активный адрес прокси из окружения внутри sandbox и добавляет к
 # Electron/Chromium обязательные флаги:
@@ -15,12 +15,12 @@ set -euo pipefail
 #                   второй эшелон против утечек QUIC/WebRTC
 #
 # Для обычных GUI-приложений, уважающих HTTP_PROXY/ALL_PROXY, используйте
-# `amnezia-proxy-manager run --gui -- <приложение>` напрямую — флаги Chromium
+# `apm run --gui -- <приложение>` напрямую — флаги Chromium
 # здесь не подходят.
 #
-# Требует уже запущенный `amnezia-proxy-manager start`.
+# Требует уже запущенный `apm start`.
 
-PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 MANAGER="${PROJECT_ROOT}/amnezia-proxy-manager"
 MANAGER_ARGS=()
 while (( $# > 0 )); do
