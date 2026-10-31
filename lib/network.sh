@@ -57,29 +57,22 @@ parse_endpoint() {
     fi
 }
 
-prepare_network_targets() {
-    parse_endpoint
-    [[ "$ENDPOINT_HOST" != *:* && "$ENDPOINT" != \[* ]] || die "IPv6 ENDPOINT не поддерживается"
-
-    if ! PROXY_IPS=$(resolve_ipv4_host "$PROXY_HOST"); then
-        die "Не удалось получить IPv4-адрес upstream-прокси: $PROXY_HOST"
-    fi
-    PROXY_CONNECT_HOST="${PROXY_IPS%% *}"
-
-    if ! ENDPOINT_IPS=$(resolve_ipv4_host "$ENDPOINT_HOST"); then
-        die "Не удалось получить IPv4 endpoint $ENDPOINT_HOST: IPv6-only endpoint не поддерживается"
-    fi
-    ENDPOINT_CONNECT_HOST="${ENDPOINT_IPS%% *}"
-    ENDPOINT_IPS="$ENDPOINT_CONNECT_HOST"
-    log INFO "Endpoint $ENDPOINT_HOST закреплён за IPv4 $ENDPOINT_CONNECT_HOST на время запуска"
-
-    if [[ "$PROXY_CONNECT_HOST" != "$PROXY_HOST" ]]; then
-        log INFO "Upstream $PROXY_HOST закреплён за IPv4 $PROXY_CONNECT_HOST на время запуска"
-    fi
-}
 
 build_allowed_ips() {
-    [[ -n "${PROXY_IPS:-}" ]] || prepare_network_targets
+    local extra_routes
+    if (( $# )); then
+        extra_routes="$*"
+    else
+        # Compatibility for callers predating explicit route contributions.
+        if (( ${PROXY_ON:-1} )); then
+            [[ -n "${PROXY_IPS:-}" ]] || prepare_network_targets
+        else
+            PROXY_IPS=""
+            [[ -n "${ENDPOINT_IPS:-}" ]] || vpn_prepare_endpoint
+        fi
+
+        extra_routes="${PROXY_IPS:-}"
+    fi
 
     local tmp raw line ip dns_entry url item count rejected before collapsed
     tmp=$(mktemp "${ALLOWED_IPS_CACHE}.XXXXXX")
@@ -118,7 +111,7 @@ build_allowed_ips() {
             (( rejected == 0 )) || log WARN "В списке отброшено невалидных записей: $rejected"
             log OK "Список загружен: $count IPv4-префиксов"
         done
-        for ip in $PROXY_IPS; do
+        for ip in $extra_routes; do
             printf '%s/32\n' "$ip" >> "$tmp"
         done
         for dns_entry in ${DNS//,/ }; do

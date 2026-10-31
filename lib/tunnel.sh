@@ -107,11 +107,8 @@ verify_tunnel_routes() {
         fi
     done
 
-    route=$(route_for_ipv4 "$PROXY_CONNECT_HOST") || die "Нет маршрута к upstream-прокси $PROXY_CONNECT_HOST"
-    if ! route_uses_interface "$route" "$WG_INTERFACE"; then
-        die "Upstream-прокси $PROXY_CONNECT_HOST маршрутизируется вне $WG_INTERFACE"
-    fi
-    log INFO "Маршрут к upstream: $route"
+    if (( ${PROXY_ON:-1} )); then transport_verify_route; fi
+
 }
 
 underlay_mtu_for_ipv4() {
@@ -162,7 +159,7 @@ start_tunnel() {
 
     sleep 1
     if is_tunnel_up; then
-        log OK "Туннель $WG_INTERFACE поднят"
+        log INFO "Интерфейс $WG_INTERFACE поднят; VPN handshake ещё не подтверждён"
         verify_tunnel_routes
     else
         die "Интерфейс $WG_INTERFACE не появился"

@@ -429,13 +429,24 @@ sandbox_run_cleanup() {
 }
 
 do_run() {
-    load_config
+    if [[ -e "$SESSION_FILE" ]]; then
+        session_load || die "Повреждено состояние сессии"
+    else
+        load_config
+    fi
+    (( ${PROXY_ON:-1} )) || die "run требует включённый proxy"
     check_sandbox_deps
     sandbox_acquire_lock || die "Не удалось заблокировать sandbox"
     trap sandbox_run_cleanup EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM
     acquire_lock
+    if [[ -e "$SESSION_FILE" ]]; then
+        session_load || die "Повреждено состояние сессии"
+        is_manager_running || die "Менеджер сессии не работает; выполните stop"
+        [[ "$SESSION_PHASE" == ready ]] || die "Сессия ещё не готова"
+        (( PROXY_ON )) || die "run требует включённый proxy"
+    fi
     is_proxy_running || die "3proxy не запущен; сначала выполните start"
 
     # Активный интерфейс берём из состояния запуска, а не из конфига.
@@ -444,7 +455,10 @@ do_run() {
         read -r owner_iface _ _ < "$TUNNEL_OWNER_FILE" || true
         [[ -n "$owner_iface" ]] && WG_INTERFACE="$owner_iface"
     fi
-    is_tunnel_up || die "Туннель не поднят; сначала выполните start"
+    if (( ${VPN_ON:-1} )); then
+        is_tunnel_up || die "Туннель не поднят; сначала выполните start"
+        guard_is_active || die "VPN/proxy guard не подтверждён"
+    fi
 
     read_active_proxy_ports
     [[ ! -e "$FW_PID_FILE" ]] || die "Осталось состояние forwarder; сначала выполните stop"

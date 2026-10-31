@@ -8,16 +8,21 @@ check_stop_requested() {
 }
 
 check_deps() {
-    check_tunnel_deps
-    command -v 3proxy >/dev/null 2>&1 || die "3proxy не найден"
+    if (( ${VPN_ON:-1} )); then check_tunnel_deps; fi
+    if (( ${PROXY_ON:-1} )); then command -v 3proxy >/dev/null 2>&1 || die "3proxy не найден"; fi
     command -v curl   >/dev/null 2>&1 || die "curl не найден"
-    command -v python3 >/dev/null 2>&1 || die "Python 3 не найден; нужен для оптимизации маршрутов"
+    if (( ${VPN_ON:-1} )) || [[ "${BLOCK_IPV6:-on}" == on ]]; then
+        command -v python3 >/dev/null 2>&1 || die "Python 3 не найден; нужен для маршрутов и firewall"
+    fi
     command -v flock  >/dev/null 2>&1 || die "flock не найден (обычно входит в util-linux)"
     command -v getent >/dev/null 2>&1 || die "getent не найден (обычно входит в libc-bin)"
-    command -v ss     >/dev/null 2>&1 || die "ss не найден (обычно входит в iproute2)"
-    command -v nft    >/dev/null 2>&1 || die "nft не найден; установите nftables"
+    if (( ${PROXY_ON:-1} )); then command -v ss     >/dev/null 2>&1 || die "ss не найден (обычно входит в iproute2)"; fi
+    if [[ "${BLOCK_IPV6:-on}" == on ]] || (( ${VPN_ON:-1} && ${PROXY_ON:-1} )); then
+        command -v sudo >/dev/null || die "sudo не найден"
+        command -v nft    >/dev/null 2>&1 || die "nft не найден; установите nftables"
+    fi
     command -v timeout >/dev/null 2>&1 || die "timeout не найден (coreutils)"
-    if [[ -n "$DNS" ]]; then
+    if (( ${VPN_ON:-1} )) && [[ -n "$DNS" ]]; then
         command -v resolvconf >/dev/null 2>&1 || die "DNS задан, но resolvconf не найден"
     fi
 }
@@ -50,38 +55,52 @@ do_start() {
     load_config
     check_stop_requested
     check_deps
-    [[ ! -e "$TUNNEL_OWNER_FILE" && ! -e "$GUARD_FILE" && ! -e "$PID_FILE" && ! -e "$IPV6_GUARD_FILE" ]] \
+    [[ ! -e "$SESSION_FILE" && ! -e "$TUNNEL_OWNER_FILE" && ! -e "$GUARD_FILE" && ! -e "$PID_FILE" && ! -e "$IPV6_GUARD_FILE" ]] \
         || die "Осталось состояние предыдущего запуска; сначала выполните stop"
+    SESSION_ID=""
+    session_write || die "Не удалось сохранить режим сессии"
     block_ipv6 || die "Не удалось установить обязательную IPv6-защиту"
     check_stop_requested
     prepare_network_targets
     check_stop_requested
-    ensure_proxy_ports_available
-    if [[ -n "$PROXY_MAXSEG" ]]; then
+    if (( PROXY_ON )); then ensure_proxy_ports_available; fi
+    if (( PROXY_ON )) && [[ -n "$PROXY_MAXSEG" ]]; then
         supports_proxy_maxseg || die "PROXY_MAXSEG требует 3proxy 0.9.6+"
     fi
-    build_allowed_ips
-    check_stop_requested
-    start_tunnel
-    check_stop_requested
-    start_guard || die "Не удалось установить обязательную сетевую защиту"
-    check_stop_requested
-    start_proxy
-    check_stop_requested
-    run_startup_healthcheck
-    check_stop_requested
-
-    log OK "Система готова"
-    echo
-    if colors_enabled; then
-        printf '%bИспользуй:%b\n' "$GREEN" "$NC"
-    else
-        echo "Используй:"
+    if (( VPN_ON )); then
+        build_allowed_ips "$(transport_extra_routes)"
+        check_stop_requested
+        VPN_STARTED_AT=$(date +%s)
+        start_tunnel
+        check_stop_requested
+        vpn_wait_connected || die "Запуск отменён: VPN-соединение не установлено"
+        check_stop_requested
     fi
-    echo "  export HTTP_PROXY=http://127.0.0.1:${LOCAL_HTTP_PORT}"
-    echo "  export HTTPS_PROXY=http://127.0.0.1:${LOCAL_HTTP_PORT}"
-    echo "  export ALL_PROXY=socks5h://127.0.0.1:${LOCAL_SOCKS_PORT}"
-    echo
+    if (( VPN_ON && PROXY_ON )); then
+        start_guard || die "Не удалось установить обязательную сетевую защиту"
+        check_stop_requested
+    fi
+    if (( PROXY_ON )); then
+        start_proxy
+        check_stop_requested
+        run_startup_healthcheck
+        check_stop_requested
+
+    fi
+    session_write ready || die "Не удалось подтвердить готовность сессии"
+    log OK "Система готова"
+    if (( PROXY_ON )); then
+        echo
+        if colors_enabled; then
+            printf '%bИспользуй:%b\n' "$GREEN" "$NC"
+        else
+            echo "Используй:"
+        fi
+        echo "  export HTTP_PROXY=http://127.0.0.1:${LOCAL_HTTP_PORT}"
+        echo "  export HTTPS_PROXY=http://127.0.0.1:${LOCAL_HTTP_PORT}"
+        echo "  export ALL_PROXY=socks5h://127.0.0.1:${LOCAL_SOCKS_PORT}"
+        echo
+    fi
 }
 
 stop_components() {
@@ -91,6 +110,8 @@ stop_components() {
     stop_tunnel || return 1
     stop_guard || return 1
     unblock_ipv6 || return 1
+    rm -f -- "$SESSION_FILE"
+    SESSION_OWNED=0
     log OK "Всё остановлено"
 }
 
@@ -164,6 +185,9 @@ cleanup() {
     if [[ "$(read_pid "$MANAGER_PID_FILE" 2>/dev/null || true)" == "$$" ]]; then
         rm -f "$MANAGER_PID_FILE"
     fi
+    if (( ${SESSION_OWNED:-0} )) && [[ ! -e "$PID_FILE" && ! -e "$TUNNEL_OWNER_FILE" && ! -e "$GUARD_FILE" && ! -e "$IPV6_GUARD_FILE" ]]; then
+        rm -f -- "$SESSION_FILE"
+    fi
     release_lock
 }
 
@@ -195,7 +219,14 @@ run_manager() {
     trap 'exit 143' TERM
     release_lock
     log INFO "Менеджер работает. Нажми Ctrl+C для остановки."
+    local active_index
     while true; do
         sleep 1
+        if (( PROXY_ON )); then is_proxy_ready || die "Потерян активный proxy"; fi
+        if (( VPN_ON )); then
+            active_index=$(interface_index "$WG_INTERFACE" 2>/dev/null) || die "Потерян собственный VPN"
+            [[ "$active_index" == "$(awk '{print $2}' "$TUNNEL_OWNER_FILE")" ]] || die "Потерян собственный VPN"
+        fi
+        if (( VPN_ON && PROXY_ON )); then guard_is_active || die "Потерян обязательный transport guard"; fi
     done
 }

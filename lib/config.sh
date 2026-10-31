@@ -1,5 +1,7 @@
 #!/bin/bash
 
+VPN_ON=1
+PROXY_ON=1
 CONFIG_LOADED=0
 WG_TMP_CONF=""
 
@@ -50,7 +52,7 @@ apply_vpn_link() {
     log INFO "Туннель настроен из VPN_LINK"
 }
 
-CONFIG_KEYS='WG_INTERFACE PRIVATE_KEY ADDRESS DNS PUBLIC_KEY ENDPOINT PERSISTENTKEEPALIVE
+CONFIG_KEYS='VPN_CONNECT_TIMEOUT VPN_ON PROXY_ON WG_INTERFACE PRIVATE_KEY ADDRESS DNS PUBLIC_KEY ENDPOINT PERSISTENTKEEPALIVE
 Jc Jmin Jmax S1 S2 S3 S4 H1 H2 H3 H4 I1 I2 I3 I4 I5 PRESHARED_KEY
 PROXY_STRING LOCAL_HTTP_PORT LOCAL_SOCKS_PORT ALLOWED_IPS IPLIST_URLS WG_MTU
 HEALTHCHECK_URL STARTUP_HEALTHCHECK PROXY_MAXSEG PROXY_PARENT_RETRIES BLOCK_IPV6
@@ -70,7 +72,7 @@ load_config() {
         log WARN "Конфиг $CONFIG_FILE имеет права $cfg_perms — рекомендуется chmod 600"
     fi
 
-    local key value line number=0 known
+    local key value line number=0 known empty_keys=""
     local -A seen=()
     CONFIG_LOADED=0
     for key in $CONFIG_KEYS; do unset "$key"; done
@@ -96,13 +98,25 @@ load_config() {
         if [[ -z "$value" ]]; then
             case "$key" in
                 DNS|PRESHARED_KEY|ALLOWED_IPS|IPLIST_URLS|PROXY_MAXSEG|I1|I2|I3|I4|I5|SANDBOX_HIDE_PATHS|SANDBOX_NO_PROXY|SANDBOX_EXPECTED_EXIT_IP|PRIVATE_KEY|ADDRESS|PUBLIC_KEY|ENDPOINT|VPN_LINK) ;;
-                *) die "Конфиг, строка $number: $key не должен быть пустым" ;;
+                *) empty_keys+=" $key" ;;
             esac
         fi
         printf -v "$key" '%s' "$value"
     done < "$CONFIG_FILE"
 
-    apply_vpn_link
+    VPN_ON=$(normalize_switch "${VPN_ON:-true}") || die "VPN_ON: ожидается true/false, on/off или 1/0"
+    PROXY_ON=$(normalize_switch "${PROXY_ON:-true}") || die "PROXY_ON: ожидается true/false, on/off или 1/0"
+    for key in $empty_keys; do
+        case "$key" in
+            VPN_ON|PROXY_ON) die "$key не должен быть пустым" ;;
+            PROXY_STRING|LOCAL_HTTP_PORT|LOCAL_SOCKS_PORT|PROXY_PARENT_RETRIES)
+                (( ! PROXY_ON )) || die "$key не должен быть пустым" ;;
+            WG_INTERFACE|PERSISTENTKEEPALIVE|Jc|Jmin|Jmax|S1|S2|S3|S4|H1|H2|H3|H4|WG_MTU|VPN_CONNECT_TIMEOUT)
+                (( ! VPN_ON )) || die "$key не должен быть пустым" ;;
+            *) die "$key не должен быть пустым" ;;
+        esac
+    done
+    if (( VPN_ON )); then apply_vpn_link; fi
 
     : "${WG_INTERFACE:=}" "${PRIVATE_KEY:=}" "${ADDRESS:=}"
     : "${PUBLIC_KEY:=}" "${ENDPOINT:=}" "${PROXY_STRING:=}"
@@ -125,6 +139,7 @@ load_config() {
     : "${H3:=3}"
     : "${H4:=4}"
     : "${WG_MTU:=auto}"
+    : "${VPN_CONNECT_TIMEOUT:=30}"
     : "${HEALTHCHECK_URL:=https://api.ipify.org}"
     : "${STARTUP_HEALTHCHECK:=warn}"
     : "${PROXY_MAXSEG:=}"
@@ -141,5 +156,13 @@ load_config() {
 
     WG_TMP_CONF="${RUNTIME_DIR}/${WG_INTERFACE}.conf"
     CONFIG_LOADED=1
-    log INFO "Конфиг загружен. Прокси: $PROXY_HOST:$PROXY_PORT"
+    log INFO "Конфиг загружен. VPN=$VPN_ON; proxy=$PROXY_ON"
+}
+
+normalize_switch() {
+    case "$1" in
+        true|on|1) echo 1 ;;
+        false|off|0) echo 0 ;;
+        *) return 1 ;;
+    esac
 }

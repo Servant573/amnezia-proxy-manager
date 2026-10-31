@@ -1,3 +1,8 @@
+# Компоненты: true/false, 1/0 или on/off. По умолчанию включены оба.
+VPN_ON=true
+PROXY_ON=true
+# BLOCK_IPV6 управляется отдельно, включая режим только proxy.
+
 # Интерфейс и ключи AmneziaWG
 # После заполнения: ./amnezia-proxy-manager config validate
 WG_INTERFACE=amnw0
@@ -21,6 +26,8 @@ PERSISTENTKEEPALIVE=25
 # auto использует расчёт awg-quick: MTU маршрута к endpoint минус 80.
 # Число задаёт фиксированный MTU, например WG_MTU=1390.
 WG_MTU=auto
+# Максимальное ожидание успешного VPN handshake (1–300 секунд).
+VPN_CONNECT_TIMEOUT=30
 
 # Блокировать исходящий IPv6 всех локальных процессов, кроме loopback.
 # off — отключить эту защиту (IPv6 endpoint всё равно не поддерживается).

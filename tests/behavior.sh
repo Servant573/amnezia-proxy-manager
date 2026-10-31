@@ -21,7 +21,7 @@ config_with() {
     awk -v key="$key" 'index($0, key "=") != 1' "$fixture" > "$CONFIG_FILE"
     printf '%s=%s\n' "$key" "$value" >> "$CONFIG_FILE"
 }
-for spec in 'LOCAL_HTTP_PORT=0' 'LOCAL_SOCKS_PORT=65536' 'LOCAL_HTTP_PORT=8080' \
+for spec in 'VPN_CONNECT_TIMEOUT=0' 'VPN_CONNECT_TIMEOUT=301' 'VPN_CONNECT_TIMEOUT=x' 'VPN_CONNECT_TIMEOUT=01' 'VPN_CONNECT_TIMEOUT=' 'LOCAL_HTTP_PORT=0' 'LOCAL_SOCKS_PORT=65536' 'LOCAL_HTTP_PORT=8080' \
     'LOCAL_HTTP_PORT=08081' 'LOCAL_HTTP_PORT=' 'WG_MTU=99999999999999999999999999' \
     'ENDPOINT=bad host:123' 'ENDPOINT=198.51.100.1:0' 'ENDPOINT=[:::1]:51820' \
     'ADDRESS=203.0.113.7./32' 'ADDRESS=10.0.0.1/33' 'ADDRESS=2001:db8::1/129' \
@@ -40,7 +40,7 @@ for spec in 'LOCAL_HTTP_PORT=0' 'LOCAL_SOCKS_PORT=65536' 'LOCAL_HTTP_PORT=8080' 
     if "$cli" config validate > "$TEST_TMP/result" 2>&1; then fail "invalid value accepted: ${spec%%=*}"; fi
     if grep -q secret-marker "$TEST_TMP/result"; then fail 'secret in validation error'; fi
 done
-for spec in 'ADDRESS=10.0.0.2/32,10.0.0.3/32' 'BLOCK_IPV6=on' \
+for spec in 'VPN_CONNECT_TIMEOUT=1' 'VPN_CONNECT_TIMEOUT=300' 'ADDRESS=10.0.0.2/32,10.0.0.3/32' 'BLOCK_IPV6=on' \
     'BLOCK_IPV6=off' 'H1=10-20' 'PRESHARED_KEY=' 'ALLOWED_IPS=' \
     'ALLOWED_IPS=192.0.2.1, 198.51.100.0/24' 'ALLOWED_IPS=0.0.0.0/0' \
     'SANDBOX_VETH_SUBNET=10.200.0.0/30' 'SANDBOX_VETH_SUBNET=10.200.0.252/30'; do

@@ -42,6 +42,7 @@ TUNNEL_OWNER_FILE="${RUNTIME_DIR}/tunnel.owner"
 GUARD_FILE="${RUNTIME_DIR}/guard.owner"
 IPV6_GUARD_FILE="${RUNTIME_DIR}/ipv6.owner"
 SANDBOX_FILE="${RUNTIME_DIR}/sandbox.owner"
+SESSION_FILE="${RUNTIME_DIR}/session.state"
 FW_PID_FILE="${RUNTIME_DIR}/sandbox-forwarder.pid"
 
 secure_directory() {

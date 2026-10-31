@@ -173,3 +173,14 @@ stop_proxy() {
     fi
     PROXY_OWNED=0
 }
+
+proxy_prepare_upstream() {
+    if ! PROXY_IPS=$(resolve_ipv4_host "$PROXY_HOST"); then
+        die "Не удалось получить IPv4-адрес upstream-прокси: $PROXY_HOST"
+    fi
+    PROXY_CONNECT_HOST="${PROXY_IPS%% *}"
+
+    if [[ "$PROXY_CONNECT_HOST" != "$PROXY_HOST" ]]; then
+        log INFO "Upstream $PROXY_HOST закреплён за IPv4 $PROXY_CONNECT_HOST на время запуска"
+    fi
+}

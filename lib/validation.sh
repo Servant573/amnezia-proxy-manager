@@ -61,7 +61,18 @@ is_https_url() {
 validate_config_values() {
     local key value item lo hi other
     local -a lows=() highs=()
-    for key in WG_INTERFACE PRIVATE_KEY ADDRESS PUBLIC_KEY ENDPOINT PROXY_STRING; do
+    (( VPN_ON || PROXY_ON )) || die "VPN_ON и PROXY_ON выключены: запускать нечего"
+    if (( VPN_ON )); then validate_vpn_config; fi
+    if (( PROXY_ON )); then validate_proxy_config; fi
+    [[ "$BLOCK_IPV6" == on || "$BLOCK_IPV6" == off ]] || die "BLOCK_IPV6: ожидается on или off"
+    if (( PROXY_ON )); then validate_sandbox_config; fi
+}
+
+validate_vpn_config() {
+    is_uint_between "$VPN_CONNECT_TIMEOUT" 1 300 || die "VPN_CONNECT_TIMEOUT должен быть от 1 до 300 секунд"
+    local key value item lo hi other
+    local -a lows=() highs=()
+    for key in WG_INTERFACE PRIVATE_KEY ADDRESS PUBLIC_KEY ENDPOINT; do
         [[ -n "${!key:-}" ]] || die "$key не задан"
     done
     [[ "$WG_INTERFACE" =~ ^[a-zA-Z0-9_=+.-]{1,15}$ && "$WG_INTERFACE" != . && "$WG_INTERFACE" != .. ]] || die "Недопустимое имя WG_INTERFACE"
@@ -82,14 +93,6 @@ validate_config_values() {
     [[ "$ENDPOINT" != \[* && "$ENDPOINT_HOST" != *:* ]] || die "IPv6 ENDPOINT не поддерживается: используйте IPv4 или hostname с A-записью"
     is_host "$ENDPOINT_HOST" || die "Некорректный адрес ENDPOINT"
     is_uint_between "$ENDPOINT_PORT" 1 65535 || die "ENDPOINT: порт должен быть от 1 до 65535"
-    IFS=: read -r PROXY_HOST PROXY_PORT PROXY_USER PROXY_PASS <<< "$PROXY_STRING"
-    is_host "$PROXY_HOST" || die "Некорректный адрес upstream (IPv4 или hostname)"
-    is_uint_between "$PROXY_PORT" 1 65535 || die "Порт upstream должен быть от 1 до 65535"
-    [[ -n "$PROXY_USER" && -n "$PROXY_PASS" ]] || die "PROXY_STRING: ожидается host:port:user:password"
-    for key in LOCAL_HTTP_PORT LOCAL_SOCKS_PORT; do
-        is_uint_between "${!key}" 1 65535 || die "$key должен быть от 1 до 65535"
-    done
-    [[ "$LOCAL_HTTP_PORT" != "$LOCAL_SOCKS_PORT" ]] || die "HTTP и SOCKS должны использовать разные порты"
     is_uint_between "$PERSISTENTKEEPALIVE" 0 65535 || die "PERSISTENTKEEPALIVE должен быть от 0 до 65535"
     for key in Jc Jmin Jmax S1 S2 S3 S4; do
         is_uint_between "${!key}" 0 65535 || die "$key должен быть от 0 до 65535"
@@ -107,17 +110,33 @@ validate_config_values() {
         lows+=("$lo"); highs+=("$hi")
     done
     [[ "$WG_MTU" == auto ]] || is_uint_between "$WG_MTU" 576 9000 || die "WG_MTU должен быть auto или от 576 до 9000"
-    [[ "$STARTUP_HEALTHCHECK" == off || "$STARTUP_HEALTHCHECK" == warn || "$STARTUP_HEALTHCHECK" == strict ]] || die "STARTUP_HEALTHCHECK: ожидается off, warn или strict"
-    [[ "$BLOCK_IPV6" == on || "$BLOCK_IPV6" == off ]] || die "BLOCK_IPV6: ожидается on или off"
-    is_https_url "$HEALTHCHECK_URL" || die "HEALTHCHECK_URL: ожидается корректный HTTPS URL без userinfo"
-    is_uint_between "$PROXY_PARENT_RETRIES" 1 10 || die "PROXY_PARENT_RETRIES должен быть от 1 до 10"
-    [[ -z "$PROXY_MAXSEG" ]] || is_uint_between "$PROXY_MAXSEG" 536 8960 || die "PROXY_MAXSEG должен быть от 536 до 8960"
     for item in $IPLIST_URLS; do is_https_url "$item" || die "IPLIST_URLS: ожидаются HTTPS URL"; done
     value="${ALLOWED_IPS//[[:space:]]/}"
     [[ "$value" != ,* && "$value" != *, && "$value" != *,,* ]] || die "Некорректный список ALLOWED_IPS"
     for item in ${ALLOWED_IPS//,/ }; do
         is_ipv4 "$item" || is_ipv4_cidr "$item" || die "ALLOWED_IPS: ожидаются IPv4-адреса или CIDR"
     done
+}
+
+validate_proxy_config() {
+    local key
+    [[ -n "$PROXY_STRING" ]] || die "PROXY_STRING не задан"
+    IFS=: read -r PROXY_HOST PROXY_PORT PROXY_USER PROXY_PASS <<< "$PROXY_STRING"
+    is_host "$PROXY_HOST" || die "Некорректный адрес upstream (IPv4 или hostname)"
+    is_uint_between "$PROXY_PORT" 1 65535 || die "Порт upstream должен быть от 1 до 65535"
+    [[ -n "$PROXY_USER" && -n "$PROXY_PASS" ]] || die "PROXY_STRING: ожидается host:port:user:password"
+    for key in LOCAL_HTTP_PORT LOCAL_SOCKS_PORT; do
+        is_uint_between "${!key}" 1 65535 || die "$key должен быть от 1 до 65535"
+    done
+    [[ "$LOCAL_HTTP_PORT" != "$LOCAL_SOCKS_PORT" ]] || die "HTTP и SOCKS должны использовать разные порты"
+    is_uint_between "$PROXY_PARENT_RETRIES" 1 10 || die "PROXY_PARENT_RETRIES должен быть от 1 до 10"
+    [[ -z "$PROXY_MAXSEG" ]] || is_uint_between "$PROXY_MAXSEG" 536 8960 || die "PROXY_MAXSEG должен быть от 536 до 8960"
+}
+
+validate_sandbox_config() {
+    local item
+    [[ "$STARTUP_HEALTHCHECK" == off || "$STARTUP_HEALTHCHECK" == warn || "$STARTUP_HEALTHCHECK" == strict ]] || die "STARTUP_HEALTHCHECK: ожидается off, warn или strict"
+    is_https_url "$HEALTHCHECK_URL" || die "HEALTHCHECK_URL: ожидается корректный HTTPS URL без userinfo"
     [[ "$SANDBOX_NETNS_NAME" =~ ^[a-zA-Z0-9_=+.-]{1,15}$ && "$SANDBOX_NETNS_NAME" != . && "$SANDBOX_NETNS_NAME" != .. ]] || die "Недопустимое имя SANDBOX_NETNS_NAME"
     [[ "${SANDBOX_VETH_SUBNET##*/}" == 30 ]] && is_ipv4 "${SANDBOX_VETH_SUBNET%/*}" || die "SANDBOX_VETH_SUBNET: ожидается IPv4 CIDR /30"
     local sandbox_base sandbox_last

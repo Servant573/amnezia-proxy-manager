@@ -15,6 +15,7 @@ load_config() { :; }
 check_sandbox_deps() { :; }
 is_proxy_running() { return 0; }
 is_tunnel_up() { return 0; }
+guard_is_active() { return 0; }
 read_active_proxy_ports() { :; }
 sandbox_netns_create() { SANDBOX_OWNED=1; touch "$SANDBOX_FILE"; }
 sandbox_netns_destroy() { rm -f "$SANDBOX_FILE"; }
@@ -79,5 +80,16 @@ with tempfile.TemporaryDirectory() as directory:
     result = subprocess.run(['bash', '-c', interactive, '_', str(ROOT)], env=env,
                             input=b'hello\n', capture_output=True, timeout=5)
     assert result.returncode == 0, ('runner lost stdin', result.stdout, result.stderr)
+
+    proxy_only = interactive.replace('do_run ignored', 'VPN_ON=0; do_run ignored')
+    proxy_only = proxy_only.replace('is_tunnel_up() { return 0; }', 'is_tunnel_up() { exit 99; }')
+    proxy_only = proxy_only.replace('guard_is_active() { return 0; }', 'guard_is_active() { exit 99; }')
+    result = subprocess.run(['bash', '-c', proxy_only, '_', str(ROOT)], env=env,
+                            input=b'hello\n', capture_output=True, timeout=5)
+    assert result.returncode == 0, result
+    vpn_only = SETUP.replace('do_run ignored', 'PROXY_ON=0; do_run ignored')
+    result = subprocess.run(['bash', '-c', vpn_only, '_', str(ROOT)], env=env,
+                            capture_output=True, timeout=5)
+    assert result.returncode != 0 and not Path(directory, 'sandbox.owner').exists()
 
 print('OK: TERM stops own agent, releases lock, early rollback and inherited stdin')

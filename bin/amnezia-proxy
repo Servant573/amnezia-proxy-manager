@@ -27,6 +27,10 @@ source "${PROJECT_ROOT}/lib/diagnostics.sh"
 # shellcheck source=../lib/sandbox.sh
 source "${PROJECT_ROOT}/lib/sandbox.sh"
 
+source "${PROJECT_ROOT}/lib/vpn.sh"
+source "${PROJECT_ROOT}/lib/transport.sh"
+source "${PROJECT_ROOT}/lib/session.sh"
+
 umask 077
 
 usage() {
@@ -118,6 +122,14 @@ main() {
         return 2
     fi
 
+    if [[ "$command" == start || "$command" == restart ]]; then
+        local preflight_output
+        if ! preflight_output=$( ( LOG_TO_FILE=0; load_config ) 2>&1); then
+            printf '%s\n' "$preflight_output" >&2
+            return 1
+        fi
+    fi
+
     case "$command" in
         start|stop|restart|status|test|diagnose|logs|run)
             init_paths
@@ -141,6 +153,8 @@ main() {
             sleep 1
             CLEANUP_DONE=0
             CONFIG_LOADED=0
+            SESSION_OWNED=0
+            SESSION_ID=""
             run_manager
             ;;
         status) do_status ;;
