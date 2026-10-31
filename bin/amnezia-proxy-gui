@@ -1,0 +1,51 @@
+#!/bin/bash
+set -euo pipefail
+
+# amnezia-proxy-gui — запуск Chromium/Electron GUI-приложения в изолированном sandbox через `amnezia-proxy-manager run --gui`.
+#
+# Использование:
+#   amnezia-proxy-gui [--config ПУТЬ] -- <приложение> [аргументы...]
+#
+# Скрипт берёт активный адрес прокси из окружения внутри sandbox и добавляет к
+# Electron/Chromium обязательные флаги:
+#   --no-sandbox    собственный sandbox Chromium не работает внутри bwrap
+#   --proxy-server=http://<host-veth>:<port>
+#                   Electron не надёжно читает proxy-env, флаг обязателен
+#   --disable-quic --force-webrtc-ip-handling-policy=disable_non_proxied_udp
+#                   второй эшелон против утечек QUIC/WebRTC
+#
+# Для обычных GUI-приложений, уважающих HTTP_PROXY/ALL_PROXY, используйте
+# `amnezia-proxy-manager run --gui -- <приложение>` напрямую — флаги Chromium
+# здесь не подходят.
+#
+# Требует уже запущенный `amnezia-proxy-manager start`.
+
+PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+MANAGER="${PROJECT_ROOT}/amnezia-proxy-manager"
+MANAGER_ARGS=()
+while (( $# > 0 )); do
+    case "$1" in
+        -c|--config)
+            (( $# >= 2 )) || { echo "Для $1 требуется путь" >&2; exit 2; }
+            MANAGER_ARGS+=( --config "$2" ); shift 2 ;;
+        --config=*)
+            MANAGER_ARGS+=( "$1" ); shift ;;
+        --)
+            shift; break ;;
+        -*)
+            echo "Неизвестная опция: $1" >&2; exit 2 ;;
+        *)
+            break ;;
+    esac
+done
+(( $# >= 1 )) || { echo "Требуется команда приложения" >&2; exit 2; }
+
+# Путь и содержимое конфига разбирает менеджер. HTTP_PROXY появляется только
+# внутри bwrap и содержит порт действующего forwarder, даже после правки конфига.
+exec "$MANAGER" "${MANAGER_ARGS[@]}" run --gui -- /bin/sh -c '
+    exec "$@" \
+        --no-sandbox \
+        --proxy-server="$HTTP_PROXY" \
+        --disable-quic \
+        --force-webrtc-ip-handling-policy=disable_non_proxied_udp
+' amnezia-proxy-gui "$@"

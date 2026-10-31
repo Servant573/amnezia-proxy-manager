@@ -373,6 +373,48 @@ SOCKS-входа, с адресом veth и портом слушателя. Т�
 userinfo, заголовки и содержимое не записываются; TLS не расшифровывается.
 Ошибка записи лога выдаёт предупреждение, но не обрывает соединение.
 
+### Режим GUI (`run --gui`)
+
+`run --gui -- <команда>` запускает GUI-приложение (например ChatGPT Desktop) в том
+же изолированном netns, но дополнительно пробрасывает внутрь bwrap дисплей и сессию:
+`$XDG_RUNTIME_DIR` (Wayland/dbus/pipewire) и `/tmp/.X11-unix` монтируются read-write,
+`/dev/shm` — для Chromium, а `/dev/dri` и `/dev/nvidia*` — через `--dev-bind` (GPU).
+Переменные `DISPLAY`, `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS`,
+`XAUTHORITY` и `XDG_SESSION_TYPE` пробрасываются явно (`sudo` их ресетит). В отличие от
+обычного `run`, supplementary-группы пользователя сохраняются (`render`/`video` для GPU).
+Файл `XAUTHORITY` монтируется отдельно read-only, в том числе из `/tmp`.
+Runtime-каталог самого менеджера скрыт: сгенерированные AWG/3proxy-конфиги с
+ключами и паролем upstream недоступны GUI-приложению.
+
+```bash
+./amnezia-proxy-manager start
+./amnezia-proxy-manager run --gui -- chatgpt \
+    --no-sandbox --proxy-server=http://10.200.0.1:8081 \
+    --disable-quic --force-webrtc-ip-handling-policy=disable_non_proxied_udp
+```
+
+Для Chromium/Electron эти флаги автоматически добавляет launcher:
+
+```bash
+./bin/amnezia-proxy-gui -- chatgpt
+```
+
+Он поддерживает `--config ПУТЬ` и получает адрес из `HTTP_PROXY` уже внутри
+sandbox, поэтому использует активный порт 3proxy даже после изменения конфига
+без рестарта стека. Выбор конфига остаётся за основным менеджером.
+
+Адрес прокси внутри sandbox — host-сторона veth (`10.200.0.1` по умолчанию, т.е.
+base+1 из `SANDBOX_VETH_SUBNET`). Electron не надёжно читает proxy-env, поэтому
+`--proxy-server` обязателен; `--no-sandbox` обязателен, потому что собственный
+sandbox Chromium не работает внутри bwrap с `--cap-drop ALL` — сетевым рубежом
+остаётся netns (без default-route), файловым — bwrap.
+
+Ослабление безопасности: GUI-режим монтирует `$XDG_RUNTIME_DIR` read-write и сохраняет
+supplementary-группы, поэтому приложению видны сессионные сокеты (rootless
+`docker.sock`, ssh/gpg-agent). Это приемлемо для интерактивного GUI-приложения
+пользователя, но не для недоверенных CLI-агентов — флаг опциональный и в обычный
+`run` не включается.
+
 Ограничение: это изоляция процесса от сетевой топологии и секретных файлов, а не
 полный kill-switch хоста. Секреты, переданные агенту в переменных окружения
 (например `ANTHROPIC_API_KEY`), не скрываются — это креды самого агента.

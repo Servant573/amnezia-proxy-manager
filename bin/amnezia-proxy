@@ -44,7 +44,8 @@ amnezia-proxy ${VERSION}
   test        Проверить доступность upstream-прокси
   diagnose    Проверить MTU, маршруты, handshake, HTTP и SOCKS
   logs        Следить за логами менеджера и 3proxy в реальном времени
-  run         Запустить команду в изолированном sandbox (netns + bwrap)
+  run [--gui]  Запустить команду в изолированном sandbox (netns + bwrap);
+               --gui пробрасывает дисплей/сессию/GPU для GUI-приложений
   config validate  Проверить конфиг без сети и изменения файлов
   help        Показать эту справку
 
@@ -104,6 +105,11 @@ main() {
         return $?
     fi
     if [[ "$command" == run ]]; then
+        SANDBOX_GUI=0
+        while [[ $# -ge 1 && "$1" == --gui ]]; do
+            SANDBOX_GUI=1
+            shift
+        done
         [[ $# -ge 1 ]] || { echo "Команда run требует команду агента" >&2; usage >&2; return 2; }
         if [[ "$1" == -- ]]; then shift; fi
         AGENT_CMD=("$@")

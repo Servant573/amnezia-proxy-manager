@@ -332,6 +332,8 @@ assert_eq "$VPUB" "$PUBLIC_KEY" "VPN_LINK PUBLIC_KEY"
 assert_eq "$VPSK" "$PRESHARED_KEY" "VPN_LINK PRESHARED_KEY"
 assert_eq "10.8.0.2/32" "$ADDRESS" "VPN_LINK ADDRESS"
 assert_eq "198.51.100.1:51820" "$ENDPOINT" "VPN_LINK ENDPOINT"
+# Jc is populated dynamically by load_config from VPN_LINK.
+# shellcheck disable=SC2154
 assert_eq "6" "$Jc" "VPN_LINK Jc"
 assert_eq "17" "$S1" "VPN_LINK S1"
 assert_eq "192.0.2.0/24" "$ALLOWED_IPS" "VPN_LINK не переопределяет ALLOWED_IPS"

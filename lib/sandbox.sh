@@ -7,6 +7,7 @@
 # Host INPUT/FORWARD guard и filesystem allowlist пока требуют доработки.
 
 SANDBOX_OWNED=0
+SANDBOX_GUI=0
 SANDBOX_NETNS_NAME=""
 SANDBOX_HOST_IF="apm0"
 SANDBOX_NS_IF="apm1"
@@ -295,6 +296,47 @@ sandbox_verify() {
     fi
 }
 
+# Дополнительные монтирования и проброс окружения для GUI-приложений (run --gui).
+# Сетевой рубеж остаётся прежним (netns без default-route); здесь лишь даём
+# приложению доступ к дисплею, сессии и GPU. Вызывается после --tmpfs /tmp,
+# чтобы X11-сокет монтировался поверх пустого tmpfs.
+sandbox_gui_bindings() {
+    (( SANDBOX_GUI )) || return 0
+    local var dev
+    # Сессия пользователя: Wayland/dbus/pipewire + собственные сокеты приложения.
+    # rw — приложение должно подключаться к сокетам (write) и создавать свои.
+    [[ -n "${XDG_RUNTIME_DIR:-}" ]] && BWRAP_ARGS+=( --bind "$XDG_RUNTIME_DIR" "$XDG_RUNTIME_DIR" )
+    # X11: подключение к unix-сокету требует write, поэтому rw (поверх tmpfs /tmp).
+    [[ -e /tmp/.X11-unix ]] && BWRAP_ARGS+=( --bind /tmp/.X11-unix /tmp/.X11-unix )
+    # Cookie может находиться в /tmp, который выше заменён пустым tmpfs.
+    if [[ -n "${XAUTHORITY:-}" && -f "$XAUTHORITY" && -r "$XAUTHORITY" ]]; then
+        BWRAP_ARGS+=( --ro-bind "$XAUTHORITY" "$XAUTHORITY" )
+    fi
+    # POSIX shared memory нужен Chromium.
+    [[ -e /dev/shm ]] && BWRAP_ARGS+=( --bind /dev/shm /dev/shm )
+    # GPU: device-узлы требуют --dev-bind (O_RDWR); ro-bind не даст открыть на запись.
+    [[ -e /dev/dri ]] && BWRAP_ARGS+=( --dev-bind /dev/dri /dev/dri )
+    for dev in /dev/nvidiactl /dev/nvidia-modeset /dev/nvidia-uvm /dev/nvidia-uvm-tools /dev/nvidia[0-9]*; do
+        [[ -e "$dev" ]] && BWRAP_ARGS+=( --dev-bind "$dev" "$dev" )
+    done
+    # sudo ресетит окружение; пробрасываем дисплей/сессию явно.
+    for var in DISPLAY WAYLAND_DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS XAUTHORITY XDG_SESSION_TYPE; do
+        [[ -n "${!var:-}" ]] && BWRAP_ARGS+=( --setenv "$var" "${!var}" )
+    done
+    return 0
+}
+
+# Аргумент группы для setpriv. CLI-режим отбрасывает supplementary-группы;
+# GUI-режим сохраняет их (нужны render/video для GPU). Захват до sudo, чтобы
+# вернуть группы пользователя, а не root.
+sandbox_setpriv_group_args() {
+    if (( SANDBOX_GUI )); then
+        printf -- '--groups=%s' "$(id -G 2>/dev/null | tr ' ' ',')"
+    else
+        printf -- '--clear-groups'
+    fi
+}
+
 sandbox_build_bwrap() {
     local empty_stub resolv_stub sysdir agent_user
     agent_user=$(id -un "$UID") || return 1
@@ -307,6 +349,12 @@ sandbox_build_bwrap() {
         [[ -e "$sysdir" ]] && BWRAP_ARGS+=( --ro-bind "$sysdir" "$sysdir" )
     done
     BWRAP_ARGS+=( --bind "$HOME" "$HOME" --bind "$PWD" "$PWD" )
+    sandbox_gui_bindings
+    if (( SANDBOX_GUI )); then
+        # Сеанс содержит наш runtime с AWG-ключом и upstream-кредами.
+        # Маскировать после GUI-bind, чтобы не открыть их вместе с сокетами.
+        BWRAP_ARGS+=( --tmpfs "$RUNTIME_DIR" )
+    fi
 
     # Скрыть host-DNS: файл — напрямую, симлинк — по фактическому пути цели.
     if [[ -L /etc/resolv.conf ]]; then
@@ -352,8 +400,10 @@ sandbox_build_bwrap() {
 sandbox_run_agent() {
     # Called only in a background child; do not leak the session lock fd.
     [[ -z "$SANDBOX_LOCK_FD" ]] || exec {SANDBOX_LOCK_FD}>&-
+    local group_args
+    group_args=$(sandbox_setpriv_group_args)
     exec sudo ip netns exec "$SANDBOX_NETNS_NAME" \
-        setpriv --reuid="$UID" --regid="$(id -g)" --clear-groups -- \
+        setpriv --reuid="$UID" --regid="$(id -g)" "$group_args" -- \
         bwrap "${BWRAP_ARGS[@]}" -- "$@"
 }
 

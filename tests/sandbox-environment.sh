@@ -39,3 +39,58 @@ expected_user=$(id -un "$UID")
     claude
 ' _ "$PATH" "$HOME" "$expected_user" "$TEST_TMP"
 echo 'OK: user PATH/HOME and UID identity survive launcher environment reset'
+
+# --- GUI-режим: проброс дисплея/сессии и сохранение supplementary-групп ---
+export XDG_RUNTIME_DIR=/run/user/1000
+export DISPLAY=:0
+export WAYLAND_DISPLAY=wayland-0
+export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+export XAUTHORITY="$HOME/.Xauthority"
+export XDG_SESSION_TYPE=wayland
+
+bwrap_join() { printf '%s ' "${BWRAP_ARGS[@]}"; }
+
+SANDBOX_GUI=1
+sandbox_build_bwrap
+joined=$(bwrap_join)
+declare -a gui_expect=(
+    '--bind /run/user/1000 /run/user/1000'
+    '--setenv DISPLAY :0'
+    '--setenv WAYLAND_DISPLAY wayland-0'
+    '--setenv DBUS_SESSION_BUS_ADDRESS unix:path=/run/user/1000/bus'
+    "--setenv XAUTHORITY $HOME/.Xauthority"
+    '--setenv XDG_SESSION_TYPE wayland'
+)
+for expected in "${gui_expect[@]}"; do
+    [[ "$joined" == *"$expected"* ]] || { echo "FAIL: GUI-режим не содержит '$expected'" >&2; exit 1; }
+done
+[[ "$(sandbox_setpriv_group_args)" == "--groups=$(id -G | tr ' ' ',')" ]] \
+    || { echo "FAIL: GUI-режим не сохраняет supplementary-группы" >&2; exit 1; }
+
+SANDBOX_GUI=0
+sandbox_build_bwrap
+joined=$(bwrap_join)
+[[ "$joined" != *"--bind /run/user/1000 /run/user/1000"* ]] \
+    || { echo "FAIL: CLI-режим пробросил XDG_RUNTIME_DIR" >&2; exit 1; }
+[[ "$(sandbox_setpriv_group_args)" == "--clear-groups" ]] \
+    || { echo "FAIL: CLI-режим должен отбрасывать supplementary-группы" >&2; exit 1; }
+
+echo 'OK: GUI-режим пробрасывает дисплей/сессию и сохраняет группы; CLI-режим — нет'
+
+# A direct child invocation keeps errexit active inside the GUI helper.
+# Calling it in an if/|| condition would mask the missing-variable regression.
+for session_type in unset empty; do
+    bash -c '
+        source "$1/bin/amnezia-proxy"
+        init_paths
+        load_config >/dev/null
+        SANDBOX_GUI=1
+        if [[ "$2" == unset ]]; then
+            unset XDG_SESSION_TYPE
+        else
+            XDG_SESSION_TYPE=""
+        fi
+        sandbox_build_bwrap
+    ' _ "$PROJECT_ROOT" "$session_type"
+done
+echo 'OK: GUI build succeeds with unset or empty XDG_SESSION_TYPE under errexit'

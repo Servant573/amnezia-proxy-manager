@@ -2,7 +2,7 @@
 set -euo pipefail
 PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$PROJECT_ROOT"
-files=(amnezia-proxy-manager bin/amnezia-proxy lib/*.sh tests/*.sh)
+files=(amnezia-proxy-manager bin/amnezia-proxy bin/amnezia-proxy-gui lib/*.sh tests/*.sh)
 for file in "${files[@]}"; do
     bash -n "$file"
 done

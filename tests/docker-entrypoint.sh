@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-for file in amnezia-proxy-manager bin/amnezia-proxy lib/*.sh tests/*.sh; do
+for file in amnezia-proxy-manager bin/amnezia-proxy bin/amnezia-proxy-gui lib/*.sh tests/*.sh; do
     bash -n "$file"
 done
 bash tests/run.sh
@@ -11,6 +11,7 @@ bash tests/routes.sh
 python3 tests/route-collapse.py
 bash tests/sandbox-lifecycle.sh
 bash tests/sandbox-environment.sh
+bash tests/sandbox-gui.sh
 python3 tests/sandbox-signals.py
 python3 tests/sandbox-forwarder.py
 python3 tests/sandbox-logging.py

@@ -116,7 +116,7 @@ IPv4 идёт через VPN, кроме более специфичных си�
 | `diagnose` | Маршруты, MTU, handshake, firewall, HTTP/SOCKS |
 | `test` | Доступность upstream; не подтверждает VPN |
 | `logs` | Последние 100 строк и новые записи логов менеджера, 3proxy и sandbox; выход — Ctrl+C |
-| `run -- <cmd>` | Запуск команды в изолированном sandbox (netns + bwrap) |
+| `run [--gui] -- <cmd>` | Запуск команды в изолированном sandbox (netns + bwrap); `--gui` пробрасывает дисплей/сессию/GPU для GUI-приложений |
 | `config validate` | Проверка конфига без сети и sudo |
 | `--help` / `--version` | Справка и версия |
 

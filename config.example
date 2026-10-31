@@ -65,6 +65,8 @@ ALLOWED_IPS=""
 IPLIST_URLS=""
 
 # Песочница для AI-агентов (amnezia-proxy run). Требует уже запущенный start.
+# Для GUI-приложений (Electron и т.п.) используйте run --gui -- <команда>:
+# тот же netns, но с пробросом дисплея/сессии/GPU (см. docs/REFERENCE.md).
 # Имя network namespace; адрес /30 задаёт пару host/namespace для veth.
 SANDBOX_NETNS_NAME=apm-sandbox
 SANDBOX_VETH_SUBNET=10.200.0.0/30
