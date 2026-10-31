@@ -62,10 +62,6 @@ VPN_LINK'
 load_config() {
     [[ -f "$CONFIG_FILE" ]] || die "Конфиг не найден: $CONFIG_FILE"
 
-    if [[ "$USING_LEGACY_CONFIG" == "1" ]]; then
-        log WARN "Используется старый путь $LEGACY_CONFIG_FILE; новый путь: $DEFAULT_CONFIG_FILE"
-    fi
-
     local cfg_perms
     cfg_perms=$(stat -c '%a' "$CONFIG_FILE" 2>/dev/null || stat -f '%Lp' "$CONFIG_FILE" 2>/dev/null || echo "")
     if [[ -n "$cfg_perms" && "$cfg_perms" != "600" && "$cfg_perms" != "400" ]]; then

@@ -8,9 +8,9 @@
 ## Выбор файла и формат
 
 Порядок выбора: `--config ПУТЬ` → `AMNEZIA_PROXY_CONFIG` →
-`${XDG_CONFIG_HOME:-$HOME/.config}/amnezia-proxy-manager/config` →
-существующий `~/.amnezia-proxy.conf`. Если оба стандартных файла отсутствуют,
-ожидается новый XDG-путь. Относительный `--config` считается от текущего каталога.
+`${XDG_CONFIG_HOME:-$HOME/.config}/amnezia-proxy-manager/config`.
+Если файл отсутствует, команда сообщает об ошибке; альтернативный файл автоматически
+не ищется. Относительный `--config` считается от текущего каталога.
 
 ```bash
 ./amnezia-proxy-manager --config ./local.conf config validate
@@ -176,7 +176,7 @@ run требует активный proxy; GUI включается CLI-флаг
 
 | Переменная | Если не задана | Назначение |
 |---|---|---|
-| `AMNEZIA_PROXY_CONFIG` | Выбор XDG/legacy-файла | Путь к конфигу; --config имеет приоритет. |
+| `AMNEZIA_PROXY_CONFIG` | Стандартный XDG-путь | Путь к конфигу; --config имеет приоритет. |
 | `AMNEZIA_PROXY_STATE_DIR` | `$XDG_STATE_HOME/amnezia-proxy-manager` | Логи и постоянное состояние. |
 | `AMNEZIA_PROXY_CACHE_DIR` | `$XDG_CACHE_HOME/amnezia-proxy-manager` | Кэш маршрутов. |
 | `AMNEZIA_PROXY_RUNTIME_DIR` | `$XDG_RUNTIME_DIR/amnezia-proxy-manager`, иначе `${TMPDIR:-/tmp}/amnezia-proxy-manager-$UID` | PID, ownership, session.state и сгенерированные конфиги. |

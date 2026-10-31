@@ -69,8 +69,8 @@ IPv6, но не добавляет поддержку IPv6 endpoint/upstream.
 - добавлены PID-проверки, lock, cleanup, справка и тесты;
 - реализация разделена на CLI и библиотеки по ответственности;
 - config/cache/state/runtime переведены на XDG-пути;
-- сохранены корневой launcher, environment overrides и fallback на старый
-  `~/.amnezia-proxy.conf`.
+- сохранены корневой launcher и environment overrides; конфиг выбирается
+  через --config, AMNEZIA_PROXY_CONFIG или стандартный XDG-путь.
 
 Ручная проверка этапа 1 на реальном AmneziaWG и 3proxy прошла успешно.
 
@@ -91,7 +91,7 @@ IPv6, но не добавляет поддержку IPv6 endpoint/upstream.
 ## Архитектура
 
 ```text
-amnezia-proxy-manager          совместимый launcher
+amnezia-proxy-manager          CLI launcher
 bin/amnezia-proxy              CLI, опции и dispatch
 lib/paths.sh                   пути и каталоги
 lib/log.sh                     логирование

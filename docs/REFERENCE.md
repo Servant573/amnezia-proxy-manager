@@ -344,7 +344,7 @@ Forwarder (`lib/sandbox_forwarder.py`, raw TCP relay) слушает на host-�
 Filesystem изолируется через `bwrap`: `/usr /bin /sbin /lib /lib64 /etc /opt`
 подключаются read-only, `$HOME` и рабочий каталог — read-write, `/run /var /root`
 и прочие каталоги хоста отсутствуют, а host-`/proc` заменяется свежим procfs.
-Секретные пути скрываются всегда: сам конфиг, `~/.amnezia-proxy.conf`, `~/.ssh`,
+Секретные пути скрываются всегда: сам конфиг, `~/.ssh`,
 `~/.aws`, `~/.gnupg`, `~/.config/gcloud`, `~/.azure`, `~/.kube`; дополнительные —
 через `SANDBOX_HIDE_PATHS`. Агент работает от вашего UID без sudo и capabilities.
 
@@ -434,7 +434,7 @@ supplementary-группы, поэтому приложению видны се�
 ## Структура проекта
 
 ```text
-amnezia-proxy-manager          совместимый launcher
+amnezia-proxy-manager          CLI launcher
 bin/amnezia-proxy              CLI и разбор аргументов
 lib/paths.sh                   XDG-пути
 lib/log.sh                     терминальный и файловый лог

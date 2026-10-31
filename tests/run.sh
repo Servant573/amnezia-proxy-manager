@@ -183,7 +183,7 @@ if custom_status=$(main --config "${TEST_TMP}/explicit-config" status 2>&1); the
 fi
 [[ "$custom_status" == *"${TEST_TMP}/explicit-config"* ]] || fail "--config не переопределил путь"
 
-# Проверяем XDG-пути и автоматический fallback на старый конфиг.
+# Проверяем XDG-пути; файлы прежнего расположения не выбираются автоматически.
 XDG_RESULT=$(env -u AMNEZIA_PROXY_CONFIG \
     -u AMNEZIA_PROXY_RUNTIME_DIR \
     -u AMNEZIA_PROXY_STATE_DIR \
@@ -200,12 +200,12 @@ assert_eq "${TEST_TMP}/xdg-home/.config/amnezia-proxy-manager/config|${TEST_TMP}
 
 mkdir -p "${TEST_TMP}/legacy-home"
 touch "${TEST_TMP}/legacy-home/.amnezia-proxy.conf"
-LEGACY_RESULT=$(env -u AMNEZIA_PROXY_CONFIG \
+CONFIG_RESULT=$(env -u AMNEZIA_PROXY_CONFIG \
     -u XDG_CONFIG_HOME \
     HOME="${TEST_TMP}/legacy-home" \
-    bash -c 'source "$1"; printf "%s|%s" "$CONFIG_FILE" "$USING_LEGACY_CONFIG"' \
+    bash -c 'source "$1"; printf "%s" "$CONFIG_FILE"' \
     _ "$SCRIPT")
-assert_eq "${TEST_TMP}/legacy-home/.amnezia-proxy.conf|1" "$LEGACY_RESULT" "fallback старого конфига"
+assert_eq "${TEST_TMP}/legacy-home/.config/amnezia-proxy-manager/config" "$CONFIG_RESULT" "старый конфиг не используется"
 
 # Проверяем, что TERM завершает foreground-цикл, вызывает cleanup и удаляет PID.
 LIFECYCLE_RUNTIME="${TEST_TMP}/lifecycle"

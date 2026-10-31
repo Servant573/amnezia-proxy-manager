@@ -75,12 +75,10 @@ main() {
             -c|--config)
                 (( $# >= 2 )) || { echo "Для $1 требуется путь" >&2; return 2; }
                 CONFIG_FILE="$2"
-                USING_LEGACY_CONFIG=0
                 shift 2
                 ;;
             --config=*)
                 CONFIG_FILE="${1#*=}"
-                USING_LEGACY_CONFIG=0
                 shift
                 ;;
             -h|--help|help)

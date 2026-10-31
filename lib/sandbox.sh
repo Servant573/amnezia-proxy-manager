@@ -367,7 +367,7 @@ sandbox_build_bwrap() {
 
     # Секретные пути: каталоги — пустой tmpfs, файлы — пустой stub.
     local hide
-    for hide in "$CONFIG_FILE" "$LEGACY_CONFIG_FILE" "${HOME}/.ssh" "${HOME}/.aws" \
+    for hide in "$CONFIG_FILE" "${HOME}/.ssh" "${HOME}/.aws" \
                 "${HOME}/.gnupg" "${HOME}/.config/gcloud" "${HOME}/.azure" "${HOME}/.kube" \
                 $SANDBOX_HIDE_PATHS; do
         [[ -n "$hide" ]] || continue
