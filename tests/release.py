@@ -26,9 +26,17 @@ with tempfile.TemporaryDirectory() as directory:
     (source / '.git/private').write_text('synthetic-git-data')
     (source / 'tests').mkdir()
     (source / 'tests/not-shipped').write_text('synthetic-test-data')
-    env = dict(os.environ, HOME=str(base / 'home'), DISTDIR=str(base / 'out'),
+    # Paths must not inherit GitHub runner or developer-shell configuration.
+    env = dict(os.environ, HOME=str(base / 'home'),
+               XDG_CONFIG_HOME=str(base / 'home/.config'),
+               XDG_CACHE_HOME=str(base / 'home/.cache'),
+               XDG_STATE_HOME=str(base / 'home/.local/state'),
+               XDG_RUNTIME_DIR=str(base / 'xdg-runtime'),
+               AMNEZIA_PROXY_STATE_DIR=str(base / 'state'),
+               AMNEZIA_PROXY_CACHE_DIR=str(base / 'cache'), DISTDIR=str(base / 'out'),
                SOURCE_DATE_EPOCH='0', PREFIX=str(base / 'installed'), DESTDIR='',
                AMNEZIA_PROXY_RUNTIME_DIR=str(base / 'runtime'))
+    env.pop('AMNEZIA_PROXY_CONFIG', None)
     for key in ('BINDIR', 'LIBEXECDIR', 'DATADIR'):
         env.pop(key, None)
     def make(target, cwd=source, ok=True, override=None):

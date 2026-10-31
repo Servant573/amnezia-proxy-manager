@@ -73,6 +73,15 @@ jobs:
       - name: Check Python 3.11 syntax compatibility
         run: python3 tests/python-syntax.py
       - name: Verify reproducible archive and installation
+        env:
+          XDG_CONFIG_HOME: ${{ runner.temp }}/unrelated-xdg-config
+          XDG_CACHE_HOME: ${{ runner.temp }}/unrelated-xdg-cache
+          XDG_STATE_HOME: ${{ runner.temp }}/unrelated-xdg-state
+          XDG_RUNTIME_DIR: ${{ runner.temp }}/unrelated-xdg-runtime
+          AMNEZIA_PROXY_CONFIG: ${{ runner.temp }}/unrelated-config
+          AMNEZIA_PROXY_STATE_DIR: ${{ runner.temp }}/unrelated-state
+          AMNEZIA_PROXY_CACHE_DIR: ${{ runner.temp }}/unrelated-cache
+          AMNEZIA_PROXY_RUNTIME_DIR: ${{ runner.temp }}/unrelated-runtime
         run: make check-dist
       - name: Build archive and verify SHA256
         run: |

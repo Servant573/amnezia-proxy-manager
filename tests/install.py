@@ -17,8 +17,16 @@ with tempfile.TemporaryDirectory() as directory:
         else:
             shutil.copy2(src, source / item)
     prefix = base / "prefix with 'quote"
-    env = dict(os.environ, HOME=str(base / 'home'), PREFIX=str(prefix), DESTDIR='',
+    # Paths must not inherit GitHub runner or developer-shell configuration.
+    env = dict(os.environ, HOME=str(base / 'home'),
+               XDG_CONFIG_HOME=str(base / 'home/.config'),
+               XDG_CACHE_HOME=str(base / 'home/.cache'),
+               XDG_STATE_HOME=str(base / 'home/.local/state'),
+               XDG_RUNTIME_DIR=str(base / 'xdg-runtime'),
+               AMNEZIA_PROXY_STATE_DIR=str(base / 'state'),
+               AMNEZIA_PROXY_CACHE_DIR=str(base / 'cache'), PREFIX=str(prefix), DESTDIR='',
                AMNEZIA_PROXY_RUNTIME_DIR=str(base / 'runtime'))
+    env.pop('AMNEZIA_PROXY_CONFIG', None)
     env.pop('BINDIR', None); env.pop('LIBEXECDIR', None); env.pop('DATADIR', None)
     def make(action='install', ok=True, override=None):
         r = subprocess.run(['make', action], cwd=source, env=override or env, capture_output=True, text=True)
