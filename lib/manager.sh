@@ -11,13 +11,13 @@ check_deps() {
     if (( ${VPN_ON:-1} )); then check_tunnel_deps; fi
     if (( ${PROXY_ON:-1} )); then command -v 3proxy >/dev/null 2>&1 || die "3proxy не найден"; fi
     command -v curl   >/dev/null 2>&1 || die "curl не найден"
-    if (( ${VPN_ON:-1} )) || [[ "${BLOCK_IPV6:-on}" == on ]]; then
+    if (( ${VPN_ON:-1} || ${GATEWAY_ON:-0} )) || [[ "${BLOCK_IPV6:-on}" == on ]]; then
         command -v python3 >/dev/null 2>&1 || die "Python 3 не найден; нужен для маршрутов и firewall"
     fi
     command -v flock  >/dev/null 2>&1 || die "flock не найден (обычно входит в util-linux)"
     command -v getent >/dev/null 2>&1 || die "getent не найден (обычно входит в libc-bin)"
     if (( ${PROXY_ON:-1} )); then command -v ss     >/dev/null 2>&1 || die "ss не найден (обычно входит в iproute2)"; fi
-    if [[ "${BLOCK_IPV6:-on}" == on ]] || (( ${VPN_ON:-1} && ${PROXY_ON:-1} )); then
+    if [[ "${BLOCK_IPV6:-on}" == on ]] || (( ${GATEWAY_ON:-0} || (${VPN_ON:-1} && ${PROXY_ON:-1}) )); then
         command -v sudo >/dev/null || die "sudo не найден"
         command -v nft    >/dev/null 2>&1 || die "nft не найден; установите nftables"
     fi
@@ -51,15 +51,22 @@ run_startup_healthcheck() {
 }
 
 do_start() {
+    local gateway_networks
     log INFO "========== ЗАПУСК =========="
     load_config
     check_stop_requested
     check_deps
-    [[ ! -e "$SESSION_FILE" && ! -e "$TUNNEL_OWNER_FILE" && ! -e "$GUARD_FILE" && ! -e "$PID_FILE" && ! -e "$IPV6_GUARD_FILE" ]] \
+    [[ ! -e "$SESSION_FILE" && ! -e "$TUNNEL_OWNER_FILE" && ! -e "$GUARD_FILE" && ! -e "$PID_FILE" && ! -e "$IPV6_GUARD_FILE" && ! -e "$GATEWAY_FILE" ]] \
         || die "Осталось состояние предыдущего запуска; сначала выполните stop"
     SESSION_ID=""
     session_write || die "Не удалось сохранить режим сессии"
-    block_ipv6 || die "Не удалось установить обязательную IPv6-защиту"
+    if (( GATEWAY_ON )); then
+        gateway_prepare || die 'Не удалось подготовить шлюз'
+        gateway_networks=$(gateway_cidrs) || die 'Не удалось подготовить список шлюза'
+    fi
+    if (( ! GATEWAY_ON )) || [[ "$BLOCK_IPV6" == on ]]; then
+        block_ipv6 || die "Не удалось установить обязательную IPv6-защиту"
+    fi
     check_stop_requested
     prepare_network_targets
     check_stop_requested
@@ -68,12 +75,16 @@ do_start() {
         supports_proxy_maxseg || die "PROXY_MAXSEG требует 3proxy 0.9.6+"
     fi
     if (( VPN_ON )); then
-        build_allowed_ips "$(transport_extra_routes)"
+        if (( GATEWAY_ON )); then ALLOWED_IPS=0.0.0.0/0; else build_allowed_ips "$(transport_extra_routes)"; fi
         check_stop_requested
         VPN_STARTED_AT=$(date +%s)
         start_tunnel
         check_stop_requested
         vpn_wait_connected || die "Запуск отменён: VPN-соединение не установлено"
+        check_stop_requested
+    fi
+    if (( GATEWAY_ON )); then
+        gateway_activate "$gateway_networks" || die 'Не удалось активировать правила шлюза'
         check_stop_requested
     fi
     if (( VPN_ON && PROXY_ON )); then
@@ -106,6 +117,7 @@ do_start() {
 stop_components() {
     log INFO "========== ОСТАНОВКА =========="
     sandbox_stop || return 1
+    stop_gateway || return 1
     stop_proxy || return 1
     stop_tunnel || return 1
     stop_guard || return 1
@@ -166,7 +178,9 @@ cleanup() {
         log WARN "Менеджер завершает работу, останавливаю сервисы..."
         # Startup failure must not adopt resources from a previous session.
         # Keep the guard if the process cannot be confirmed stopped.
-        if [[ "$PROXY_OWNED" == 0 ]] || stop_proxy; then
+        if (( GATEWAY_OWNED )) && ! stop_gateway; then
+            log ERR 'Не удалось закрыть транзит шлюза; повторите stop'
+        elif [[ "$PROXY_OWNED" == 0 ]] || stop_proxy; then
             if [[ "$TUNNEL_OWNED" == 0 ]] || stop_tunnel; then
                 if [[ "$GUARD_OWNED" == 0 ]] || stop_guard; then
                     if [[ "$IPV6_OWNED" == 1 ]]; then
@@ -185,7 +199,7 @@ cleanup() {
     if [[ "$(read_pid "$MANAGER_PID_FILE" 2>/dev/null || true)" == "$$" ]]; then
         rm -f "$MANAGER_PID_FILE"
     fi
-    if (( ${SESSION_OWNED:-0} )) && [[ ! -e "$PID_FILE" && ! -e "$TUNNEL_OWNER_FILE" && ! -e "$GUARD_FILE" && ! -e "$IPV6_GUARD_FILE" ]]; then
+    if (( ${SESSION_OWNED:-0} )) && [[ ! -e "$PID_FILE" && ! -e "$TUNNEL_OWNER_FILE" && ! -e "$GUARD_FILE" && ! -e "$IPV6_GUARD_FILE" && ! -e "$GATEWAY_FILE" ]]; then
         rm -f -- "$SESSION_FILE"
     fi
     release_lock
@@ -223,7 +237,7 @@ run_manager() {
     while true; do
         sleep 1
         if (( PROXY_ON )); then is_proxy_ready || die "Потерян активный proxy"; fi
-        if (( VPN_ON )); then
+        if (( VPN_ON && ! GATEWAY_ON )); then
             active_index=$(interface_index "$WG_INTERFACE" 2>/dev/null) || die "Потерян собственный VPN"
             [[ "$active_index" == "$(awk '{print $2}' "$TUNNEL_OWNER_FILE")" ]] || die "Потерян собственный VPN"
         fi

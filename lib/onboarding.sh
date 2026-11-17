@@ -29,7 +29,7 @@ doctor_require() {
 
 do_doctor() {
     local doctor_sandbox=0 doctor_failures=0 summary
-    local doctor_vpn=1 doctor_proxy=1 doctor_ipv6=on doctor_dns='' doctor_lists='' doctor_config_known=0
+    local doctor_vpn=1 doctor_proxy=1 doctor_gateway=0 doctor_ipv6=on doctor_dns='' doctor_lists='' doctor_config_known=0
     if (( $# )); then
         if [[ $# == 1 && "$1" == --sandbox ]]; then doctor_sandbox=1
         else echo 'Использование: doctor [--sandbox]' >&2; return 2; fi
@@ -41,11 +41,13 @@ do_doctor() {
     echo "OK: Bash $BASH_VERSION (требуется 4.1+)"
     if [[ -f "$CONFIG_FILE" ]]; then
         if summary=$( ( LOG_TO_FILE=0; load_config >/dev/null
-            printf '%s\n' "$VPN_ON" "$PROXY_ON" "$BLOCK_IPV6" "$DNS" "$IPLIST_URLS" ) 2>/dev/null); then
+            printf '%s\n' "$VPN_ON" "$PROXY_ON" "$BLOCK_IPV6" "$DNS" "$IPLIST_URLS $GATEWAY_CIDR_URLS" \
+                "$GATEWAY_ON" "${GATEWAY_INGRESS_IF:-}" "${GATEWAY_WAN_IF:-}" ) 2>/dev/null); then
             local -a fields
             mapfile -t fields <<< "$summary"
             doctor_vpn=${fields[0]}; doctor_proxy=${fields[1]}; doctor_ipv6=${fields[2]}
-            doctor_dns=${fields[3]:-}; doctor_lists=${fields[4]:-}; doctor_config_known=1
+            doctor_dns=${fields[3]:-}; doctor_lists=$(trim "${fields[4]:-}"); doctor_config_known=1
+            doctor_gateway=${fields[5]}
             echo "OK: конфиг; VPN=$doctor_vpn proxy=$doctor_proxy IPv6=$doctor_ipv6"
         else
             echo 'FAIL: конфиг не прошёл проверку; выполните config validate. Проверяю зависимости обоих компонентов.'
@@ -61,10 +63,19 @@ do_doctor() {
         doctor_require awg 'управление AmneziaWG'
         doctor_require awg-quick 'запуск и очистка VPN'
     fi
-    if (( doctor_vpn || doctor_sandbox )); then doctor_require ip 'интерфейсы и маршруты'; fi
-    if (( doctor_vpn || doctor_sandbox )) || [[ "$doctor_ipv6" == on ]]; then doctor_require sudo 'сетевые операции (авторизация сейчас не выполняется)'; fi
-    if (( doctor_vpn || doctor_sandbox )) || [[ "$doctor_ipv6" == on ]]; then doctor_require python3 'маршруты, конфигурация или проверка защиты'; fi
-    if [[ "$doctor_ipv6" == on ]] || (( doctor_vpn && doctor_proxy )); then doctor_require nft 'сетевая защита'; fi
+    if (( doctor_vpn || doctor_gateway || doctor_sandbox )); then doctor_require ip 'интерфейсы и маршруты'; fi
+    if (( doctor_vpn || doctor_gateway || doctor_sandbox )) || [[ "$doctor_ipv6" == on ]]; then doctor_require sudo 'сетевые операции (авторизация сейчас не выполняется)'; fi
+    if (( doctor_vpn || doctor_gateway || doctor_sandbox )) || [[ "$doctor_ipv6" == on ]]; then doctor_require python3 'маршруты, конфигурация или проверка защиты'; fi
+    if [[ "$doctor_ipv6" == on ]] || (( doctor_gateway || (doctor_vpn && doctor_proxy) )); then doctor_require nft 'сетевая защита'; fi
+    if (( doctor_gateway )); then
+        local interface
+        for interface in "${fields[6]}" "${fields[7]}"; do
+            if interface_index "$interface" >/dev/null 2>&1; then echo "OK: интерфейс $interface"
+            else echo "FAIL: интерфейс $interface отсутствует"; doctor_failures=$((doctor_failures + 1)); fi
+        done
+        if [[ $(< /proc/sys/net/ipv4/ip_forward) == 1 ]]; then echo 'OK: IPv4 forwarding'
+        else echo 'FAIL: требуется net.ipv4.ip_forward=1'; doctor_failures=$((doctor_failures + 1)); fi
+    fi
     if (( doctor_proxy )); then
         doctor_require 3proxy 'локальные HTTP/SOCKS-прокси'
         doctor_require ss 'принадлежность listeners'

@@ -2,15 +2,17 @@
 
 SESSION_OWNED=0
 SESSION_KEYS='SESSION_ID SESSION_PHASE VPN_ON PROXY_ON BLOCK_IPV6 WG_INTERFACE WG_MTU HEALTHCHECK_URL SANDBOX_NETNS_NAME SANDBOX_VETH_SUBNET SANDBOX_HIDE_PATHS SANDBOX_NO_PROXY SANDBOX_EXPECTED_EXIT_IP'
+GATEWAY_SESSION_KEYS='GATEWAY_INGRESS_IF GATEWAY_WAN_IF GATEWAY_MATCH_ACTION GATEWAY_DEFAULT_ACTION'
 
 session_write() {
-    local tmp key
+    local tmp key version=1 keys="$SESSION_KEYS"
+    if (( ${GATEWAY_ON:-0} )); then version=2; keys+=" $GATEWAY_SESSION_KEYS"; fi
     SESSION_PHASE=${1:-starting}
     SESSION_ID=${SESSION_ID:-$(cat /proc/sys/kernel/random/uuid)}
     tmp=$(mktemp "$RUNTIME_DIR/session.XXXXXX") || return 1
     ( umask 077
-      printf 'version=1\n'
-      for key in $SESSION_KEYS; do printf '%s=%s\n' "$key" "${!key-}"; done
+      printf 'version=%s\n' "$version"
+      for key in $keys; do printf '%s=%s\n' "$key" "${!key-}"; done
     ) > "$tmp" || { rm -f "$tmp"; return 1; }
     mv -f -- "$tmp" "$SESSION_FILE" || { rm -f "$tmp"; return 1; }
     SESSION_OWNED=1
@@ -18,28 +20,33 @@ session_write() {
 
 # Parse data, never shell source. Commit globals only after full validation.
 session_load() {
-    local line key value count=0
+    local line key value keys="$SESSION_KEYS" gateway=0
     local -A values=()
     [[ -f "$SESSION_FILE" && ! -L "$SESSION_FILE" && -O "$SESSION_FILE" ]] || return 1
     while IFS= read -r line || [[ -n "$line" ]]; do
         [[ "$line" == *=* && "$line" != *[[:cntrl:]]* ]] || return 1
         key=${line%%=*}; value=${line#*=}
-        [[ " version $SESSION_KEYS " == *" $key "* && -z "${values[$key]+set}" ]] || return 1
+        [[ " version $SESSION_KEYS $GATEWAY_SESSION_KEYS " == *" $key "* && -z "${values[$key]+set}" ]] || return 1
         values[$key]=$value
-        count=$((count+1))
     done < "$SESSION_FILE"
-    [[ "$count" == 14 && "${values[version]:-}" == 1 ]] || return 1
+    case "${values[version]:-}" in
+        1) ;;
+        2) gateway=1; keys+=" $GATEWAY_SESSION_KEYS" ;;
+        *) return 1 ;;
+    esac
+    set -- $keys
+    [[ "${#values[@]}" -eq $(($# + 1)) ]] || return 1
     [[ "${values[VPN_ON]:-}" =~ ^[01]$ && "${values[PROXY_ON]:-}" =~ ^[01]$ ]] || return 1
     [[ "${values[BLOCK_IPV6]:-}" == on || "${values[BLOCK_IPV6]:-}" == off ]] || return 1
-    for key in $SESSION_KEYS; do [[ -n "${values[$key]+set}" ]] || return 1; done
+    for key in "$@"; do [[ -n "${values[$key]+set}" ]] || return 1; done
     [[ "${values[SESSION_ID]}" =~ ^[0-9a-f-]{36}$ ]] || return 1
     [[ "${values[SESSION_PHASE]}" == starting || "${values[SESSION_PHASE]}" == ready ]] || return 1
-    (( values[VPN_ON] || values[PROXY_ON] )) || return 1
+    (( values[VPN_ON] || values[PROXY_ON] || gateway )) || return 1
     if (( values[VPN_ON] )); then
         [[ "${values[WG_INTERFACE]}" =~ ^[a-zA-Z0-9_=+.-]{1,15}$ && "${values[WG_INTERFACE]}" != . && "${values[WG_INTERFACE]}" != .. ]] || return 1
     fi
     (
-        for key in $SESSION_KEYS; do printf -v "$key" '%s' "${values[$key]}"; done
+        for key in "$@"; do printf -v "$key" '%s' "${values[$key]}"; done
         LOG_TO_FILE=0
         STARTUP_HEALTHCHECK=off
         if (( PROXY_ON )); then validate_sandbox_config; fi
@@ -47,6 +54,7 @@ session_load() {
             [[ "$WG_MTU" == auto ]] || is_uint_between "$WG_MTU" 576 9000 || exit 1
         fi
     ) || return 1
-    for key in $SESSION_KEYS; do printf -v "$key" '%s' "${values[$key]}"; done
+    for key in "$@"; do printf -v "$key" '%s' "${values[$key]}"; done
+    GATEWAY_ON=$gateway
     WG_TMP_CONF="$RUNTIME_DIR/$WG_INTERFACE.conf"
 }

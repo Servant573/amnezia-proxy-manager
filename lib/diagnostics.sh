@@ -25,7 +25,7 @@ do_test() {
 diagnose_runtime() {
     local mode="$1" failures=0 unknown=0 config_result owner_iface owner_index owner_boot
     local route actual_endpoint latest now age endpoint_output owned=0 proxy_ready=0 guard_status
-    local actual recommended field value
+    local actual recommended line policy_rule
     # Endpoint is filled only by successful inspection of the running peer.
     ENDPOINT_IPS=""
     PUBLIC_KEY=""
@@ -45,7 +45,7 @@ diagnose_runtime() {
     echo '=== Состояние VPN/proxy ==='
     [[ ! -e "$SESSION_FILE" ]] || echo "Сессия: $SESSION_ID ($SESSION_PHASE), VPN=$VPN_ON proxy=$PROXY_ON"
     if ! is_manager_running && ! is_proxy_running && { (( ! ${VPN_ON:-1} )) || ! is_tunnel_up; } &&
-        [[ ! -e "$MANAGER_PID_FILE" && ! -e "$PID_FILE" && ! -e "$TUNNEL_OWNER_FILE" && ! -e "$GUARD_FILE" && ! -e "$IPV6_GUARD_FILE" ]]; then
+        [[ ! -e "$MANAGER_PID_FILE" && ! -e "$PID_FILE" && ! -e "$TUNNEL_OWNER_FILE" && ! -e "$GUARD_FILE" && ! -e "$IPV6_GUARD_FILE" && ! -e "$GATEWAY_FILE" ]]; then
         echo 'Менеджер: STOPPED; туннель: DOWN; 3proxy: STOPPED'
         return 3
     fi
@@ -71,9 +71,10 @@ diagnose_runtime() {
         fi
         # Only read non-secret fields; do not source generated configuration.
         if [[ -r "$WG_TMP_CONF" ]]; then
-            while IFS='=' read -r field value; do
-                field=$(trim "$field"); value=$(trim "$value")
-                case "$field" in PublicKey) PUBLIC_KEY="$value" ;; esac
+            while IFS= read -r line; do
+                if [[ "$(trim "${line%%=*}")" == PublicKey ]]; then
+                    PUBLIC_KEY=$(trim "${line#*=}")
+                fi
             done < "$WG_TMP_CONF"
         fi
     else
@@ -121,7 +122,24 @@ diagnose_runtime() {
     else
         echo "Transport: системная маршрутизация / неприменим"
     fi
-    if [[ "$BLOCK_IPV6" == off && ! -e "$IPV6_GUARD_FILE" ]]; then
+    if (( GATEWAY_ON )); then
+        echo "Шлюз: вход $GATEWAY_INGRESS_IF, WAN $GATEWAY_WAN_IF, список=$GATEWAY_MATCH_ACTION остальные=$GATEWAY_DEFAULT_ACTION"
+        if [[ -e "$SESSION_FILE" && "$SESSION_PHASE" == ready ]] && gateway_is_active; then
+            echo 'Транзит: правила IPv4 загружены, IPv6 закрыт'
+            if (( VPN_ON )); then
+                route=$(ip -4 route show table "$GATEWAY_ROUTE_TABLE" dev "$WG_INTERFACE" 2>/dev/null || true)
+                policy_rule=$(gateway_policy_rule "$GATEWAY_INGRESS_IF" 2>/dev/null || true)
+                if [[ -n "$policy_rule" && "${route%% *}" == default && "$route" != *linkdown* ]]; then echo "Маршрут шлюза: $route"
+                else echo 'Маршрут шлюза: FAIL'; failures=$((failures + 1)); fi
+            fi
+        else
+            echo 'Транзит: активная политика не подтверждена'
+            failures=$((failures + 1))
+        fi
+    fi
+    if (( GATEWAY_ON )) && [[ "$BLOCK_IPV6" == off && ! -e "$IPV6_GUARD_FILE" ]]; then
+        echo 'IPv6 хоста: системная политика'
+    elif [[ "$BLOCK_IPV6" == off && ! -e "$IPV6_GUARD_FILE" ]]; then
         echo 'IPv6: OFF — менеджер не обеспечивает блокировку прямого IPv6'
         unknown=$((unknown + 1))
     elif ipv6_block_active; then

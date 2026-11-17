@@ -18,7 +18,7 @@ APP = 'amnezia-proxy-manager'
 LIB_FILES = '''vpn_link.py check_ipv6_guard.py sandbox_forwarder.py manager.sh vpn.sh
 config.sh diagnostics.sh network.sh check_guard.py session.sh validation.sh
 collapse_routes.py proxy.sh sandbox.sh paths.sh ipv6.sh transport.sh guard.sh
-runtime.sh tunnel.sh log.sh onboarding.sh config_init.py'''.split()
+runtime.sh tunnel.sh log.sh onboarding.sh config_init.py gateway.sh'''.split()
 FILES = {name: name for name in ('apm', 'apm-gui', 'amnezia-proxy-manager', 'bin/amnezia-proxy', 'bin/amnezia-proxy-gui')}
 FILES.update({f'lib/{name}': f'lib/{name}' for name in LIB_FILES})
 FILES.update({'config.example': 'share/config.example', 'README.md': 'share/doc/README.md',

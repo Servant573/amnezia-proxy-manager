@@ -4,6 +4,9 @@ Linux CLI для AmneziaWG VPN и локальных HTTP/SOCKS-прокси ч�
 VPN и proxy можно запускать вместе или отдельно; поддерживаются выборочные
 маршруты и полный IPv4-туннель. Основная команда — `apm`.
 
+[Режим шлюза](docs/CONFIGURATION.md#шлюз-на-первом-vps) направляет входящий
+VPN-трафик через второй туннель, напрямую или блокирует его по списку IPv4/CIDR.
+
 ## Быстрый старт
 
 Установите [зависимости](docs/REFERENCE.md#зависимости), затем программу:
@@ -71,3 +74,5 @@ export ALL_PROXY=socks5h://127.0.0.1:8080
 
 Тесты в изолированном контейнере: `bash tests/docker.sh`.
 Линтеры: `bash tests/lint.sh` (ShellCheck 0.11.0, actionlint 1.7.12).
+Сетевой тест шлюза с двумя AmneziaWG-туннелями: `bash tests/gateway-netns.sh`
+(нужны модуль AmneziaWG и разрешённые user/network namespaces).

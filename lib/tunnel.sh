@@ -35,6 +35,7 @@ EOF
         if [[ -n "$WG_MTU" && "$WG_MTU" != "auto" ]]; then
             echo "MTU = ${WG_MTU}"
         fi
+        if (( ${GATEWAY_ON:-0} )); then echo 'Table = off'; fi
         [[ -n "$DNS" ]] && echo "DNS = ${DNS}"
         # Jc/Jmin/Jmax are assigned dynamically by load_config.
         # shellcheck disable=SC2154
@@ -80,7 +81,7 @@ route_for_endpoint() {
     local ip="$1" mark
     # Default routes use awg-quick policy routing. Outer UDP packets carry the
     # interface's fwmark; an unmarked lookup instead follows the VPN default.
-    if [[ -r "$WG_TMP_CONF" ]] &&
+    if (( ! ${GATEWAY_ON:-0} )) && [[ -r "$WG_TMP_CONF" ]] &&
         grep -Eq '^AllowedIPs = (.*,[[:space:]]*)?0\.0\.0\.0/0([[:space:]]*,.*)?$' "$WG_TMP_CONF"; then
         mark=$(run_privileged awg show "$WG_INTERFACE" fwmark) || return 1
         [[ "$mark" =~ ^(0x[0-9a-fA-F]{1,8}|[1-9][0-9]{0,9})$ ]] || return 1

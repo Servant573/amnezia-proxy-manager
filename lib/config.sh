@@ -57,6 +57,7 @@ Jc Jmin Jmax S1 S2 S3 S4 H1 H2 H3 H4 I1 I2 I3 I4 I5 PRESHARED_KEY
 PROXY_STRING LOCAL_HTTP_PORT LOCAL_SOCKS_PORT ALLOWED_IPS IPLIST_URLS WG_MTU
 HEALTHCHECK_URL STARTUP_HEALTHCHECK PROXY_MAXSEG PROXY_PARENT_RETRIES BLOCK_IPV6
 SANDBOX_NETNS_NAME SANDBOX_VETH_SUBNET SANDBOX_HIDE_PATHS SANDBOX_NO_PROXY SANDBOX_EXPECTED_EXIT_IP
+GATEWAY_ON GATEWAY_INGRESS_IF GATEWAY_WAN_IF GATEWAY_CIDRS GATEWAY_CIDR_URLS GATEWAY_MATCH_ACTION GATEWAY_DEFAULT_ACTION
 VPN_LINK'
 
 load_config() {
@@ -93,7 +94,7 @@ load_config() {
         [[ "$value" != *[[:cntrl:]]* ]] || die "Конфиг, строка $number: управляющие символы запрещены"
         if [[ -z "$value" ]]; then
             case "$key" in
-                DNS|PRESHARED_KEY|ALLOWED_IPS|IPLIST_URLS|PROXY_MAXSEG|I1|I2|I3|I4|I5|SANDBOX_HIDE_PATHS|SANDBOX_NO_PROXY|SANDBOX_EXPECTED_EXIT_IP|PRIVATE_KEY|ADDRESS|PUBLIC_KEY|ENDPOINT|VPN_LINK) ;;
+                DNS|PRESHARED_KEY|ALLOWED_IPS|IPLIST_URLS|PROXY_MAXSEG|I1|I2|I3|I4|I5|SANDBOX_HIDE_PATHS|SANDBOX_NO_PROXY|SANDBOX_EXPECTED_EXIT_IP|PRIVATE_KEY|ADDRESS|PUBLIC_KEY|ENDPOINT|VPN_LINK|GATEWAY_CIDRS|GATEWAY_CIDR_URLS) ;;
                 *) empty_keys+=" $key" ;;
             esac
         fi
@@ -102,9 +103,10 @@ load_config() {
 
     VPN_ON=$(normalize_switch "${VPN_ON:-true}") || die "VPN_ON: ожидается true/false, on/off или 1/0"
     PROXY_ON=$(normalize_switch "${PROXY_ON:-true}") || die "PROXY_ON: ожидается true/false, on/off или 1/0"
+    GATEWAY_ON=$(normalize_switch "${GATEWAY_ON:-false}") || die "GATEWAY_ON: ожидается true/false, on/off или 1/0"
     for key in $empty_keys; do
         case "$key" in
-            VPN_ON|PROXY_ON) die "$key не должен быть пустым" ;;
+            VPN_ON|PROXY_ON|GATEWAY_ON) die "$key не должен быть пустым" ;;
             PROXY_STRING|LOCAL_HTTP_PORT|LOCAL_SOCKS_PORT|PROXY_PARENT_RETRIES)
                 (( ! PROXY_ON )) || die "$key не должен быть пустым" ;;
             WG_INTERFACE|PERSISTENTKEEPALIVE|Jc|Jmin|Jmax|S1|S2|S3|S4|H1|H2|H3|H4|WG_MTU|VPN_CONNECT_TIMEOUT)
@@ -140,13 +142,14 @@ load_config() {
     : "${STARTUP_HEALTHCHECK:=warn}"
     : "${PROXY_MAXSEG:=}"
     : "${PROXY_PARENT_RETRIES:=2}"
-    : "${BLOCK_IPV6:=on}"
+    if (( GATEWAY_ON )); then : "${BLOCK_IPV6:=off}"; else : "${BLOCK_IPV6:=on}"; fi
     : "${SANDBOX_NETNS_NAME:=apm-sandbox}"
     : "${SANDBOX_VETH_SUBNET:=10.200.0.0/30}"
     : "${SANDBOX_HIDE_PATHS:=}"
     : "${SANDBOX_NO_PROXY:=}"
     : "${SANDBOX_EXPECTED_EXIT_IP:=}"
     : "${VPN_LINK:=}"
+    : "${GATEWAY_CIDRS:=}" "${GATEWAY_CIDR_URLS:=}"
 
     validate_config_values
 

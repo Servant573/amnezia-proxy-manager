@@ -26,6 +26,8 @@ source "${PROJECT_ROOT}/lib/proxy.sh"
 source "${PROJECT_ROOT}/lib/tunnel.sh"
 source "${PROJECT_ROOT}/lib/guard.sh"
 source "${PROJECT_ROOT}/lib/ipv6.sh"
+# shellcheck source=../lib/gateway.sh
+source "${PROJECT_ROOT}/lib/gateway.sh"
 # shellcheck source=../lib/manager.sh
 source "${PROJECT_ROOT}/lib/manager.sh"
 source "${PROJECT_ROOT}/lib/diagnostics.sh"
@@ -47,10 +49,10 @@ apm ${VERSION}
   apm [--config ПУТЬ] <команда>
 
 Команды:
-  start       Запустить туннель и локальные прокси в foreground
+  start       Запустить настроенные компоненты в foreground
   stop        Остановить запущенный менеджер и сетевые компоненты
   restart     Перезапустить менеджер
-  status      Показать состояние менеджера, туннеля и 3proxy
+  status      Показать состояние менеджера и настроенных компонентов
   test        Проверить доступность upstream-прокси
   diagnose    Проверить MTU, маршруты, handshake, HTTP и SOCKS
   logs        Следить за логами менеджера и 3proxy в реальном времени
@@ -59,6 +61,7 @@ apm ${VERSION}
   doctor [--sandbox]  Проверить зависимости без изменения системы
   config init      Создать конфиг без перезаписи существующего
   config validate  Проверить конфиг без сети и изменения файлов
+  gateway firewall  Вывести базовые правила nftables для шлюза
   help        Показать эту справку
 
 Опции:
@@ -120,6 +123,10 @@ main() {
     fi
     if [[ "$command" == config && $# == 1 && "$1" == validate ]]; then
         ( LOG_TO_FILE=0; load_config; echo "Конфиг корректен" )
+        return $?
+    fi
+    if [[ "$command" == gateway && $# == 1 && "$1" == firewall ]]; then
+        ( LOG_TO_FILE=0; load_config >/dev/null; (( GATEWAY_ON )) || die 'GATEWAY_ON выключен'; gateway_firewall )
         return $?
     fi
     if [[ "$command" == run ]]; then

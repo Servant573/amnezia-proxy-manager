@@ -61,11 +61,44 @@ is_https_url() {
 validate_config_values() {
     local key value item lo hi other
     local -a lows=() highs=()
-    (( VPN_ON || PROXY_ON )) || die "VPN_ON и PROXY_ON выключены: запускать нечего"
+    (( VPN_ON || PROXY_ON || ${GATEWAY_ON:-0} )) || die "VPN_ON и PROXY_ON выключены: запускать нечего"
     if (( VPN_ON )); then validate_vpn_config; fi
     if (( PROXY_ON )); then validate_proxy_config; fi
     [[ "$BLOCK_IPV6" == on || "$BLOCK_IPV6" == off ]] || die "BLOCK_IPV6: ожидается on или off"
     if (( PROXY_ON )); then validate_sandbox_config; fi
+    if (( ${GATEWAY_ON:-0} )); then validate_gateway_config; fi
+}
+
+valid_interface_name() {
+    [[ "$1" =~ ^[a-zA-Z0-9_=+.-]{1,15}$ && "$1" != . && "$1" != .. ]]
+}
+
+validate_gateway_config() {
+    local item
+    (( ! PROXY_ON )) || die 'Режим шлюза требует PROXY_ON=off'
+    valid_interface_name "${GATEWAY_INGRESS_IF:-}" || die 'GATEWAY_INGRESS_IF: задайте имя входящего VPN-интерфейса'
+    valid_interface_name "${GATEWAY_WAN_IF:-}" || die 'GATEWAY_WAN_IF: задайте имя публичного интерфейса'
+    [[ "$GATEWAY_INGRESS_IF" != "$GATEWAY_WAN_IF" && "$GATEWAY_INGRESS_IF" != lo && "$GATEWAY_WAN_IF" != lo ]] \
+        || die 'Входящий VPN и WAN должны быть разными интерфейсами, отличными от lo'
+    for item in "${GATEWAY_MATCH_ACTION:-}" "${GATEWAY_DEFAULT_ACTION:-}"; do
+        [[ "$item" == direct || "$item" == tunnel || "$item" == block ]] || die 'Действия шлюза: direct, tunnel или block'
+    done
+    if [[ "$GATEWAY_MATCH_ACTION" == tunnel || "$GATEWAY_DEFAULT_ACTION" == tunnel ]]; then
+        (( VPN_ON )) || die 'Действие tunnel требует VPN_ON=on'
+        [[ "$WG_INTERFACE" != "$GATEWAY_INGRESS_IF" && "$WG_INTERFACE" != "$GATEWAY_WAN_IF" && "$WG_INTERFACE" != lo ]] \
+            || die 'WG_INTERFACE должен отличаться от входящего VPN, WAN и lo'
+    else
+        (( ! VPN_ON )) || die 'Политика шлюза без действия tunnel требует VPN_ON=off'
+    fi
+    [[ -z "$ALLOWED_IPS" && -z "$IPLIST_URLS" && -z "$DNS" ]] || die 'В режиме шлюза оставьте ALLOWED_IPS, IPLIST_URLS и DNS пустыми'
+    for item in $GATEWAY_CIDR_URLS; do is_https_url "$item" || die 'GATEWAY_CIDR_URLS: ожидаются HTTPS URL'; done
+    local -a cidrs=()
+    read -ra cidrs <<< "${GATEWAY_CIDRS//,/ }"
+    for item in "${cidrs[@]}"; do
+        is_ipv4 "$item" || is_ipv4_cidr "$item" || die 'GATEWAY_CIDRS: ожидаются IPv4-адреса или CIDR'
+    done
+    [[ "$GATEWAY_MATCH_ACTION" == "$GATEWAY_DEFAULT_ACTION" || ${#cidrs[@]} -gt 0 || -n "$GATEWAY_CIDR_URLS" ]] \
+        || die 'Для разных действий шлюза задайте список IPv4/CIDR'
 }
 
 validate_vpn_config() {
@@ -75,7 +108,7 @@ validate_vpn_config() {
     for key in WG_INTERFACE PRIVATE_KEY ADDRESS PUBLIC_KEY ENDPOINT; do
         [[ -n "${!key:-}" ]] || die "$key не задан"
     done
-    [[ "$WG_INTERFACE" =~ ^[a-zA-Z0-9_=+.-]{1,15}$ && "$WG_INTERFACE" != . && "$WG_INTERFACE" != .. ]] || die "Недопустимое имя WG_INTERFACE"
+    valid_interface_name "$WG_INTERFACE" || die "Недопустимое имя WG_INTERFACE"
     for key in PRIVATE_KEY PUBLIC_KEY PRESHARED_KEY; do
         value="${!key}"
         [[ "$key" != PRESHARED_KEY || -n "$value" ]] || continue
