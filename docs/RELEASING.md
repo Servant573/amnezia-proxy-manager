@@ -15,7 +15,7 @@ make dist
 ```
 
 Версия читается из VERSION в bin/amnezia-proxy. Для неё обязателен раздел в
-CHANGELOG.md. Текущая подготовленная версия — 0.3.1. Наличие локального архива само по себе не означает,
+CHANGELOG.md. Текущая подготовленная версия — 0.4.0. Наличие локального архива само по себе не означает,
 что тег отправлен или публичный релиз создан.
 
 Результат: `dist/apm-<версия>-linux.tar.gz` и одноимённый файл `.sha256`.
@@ -36,9 +36,9 @@ UID/GID, порядок, права, tar/gzip-метаданные нормал�
 ## Проверка пользователем
 
 ```bash
-sha256sum --check apm-0.3.1-linux.tar.gz.sha256
-tar -xzf apm-0.3.1-linux.tar.gz
-cd apm-0.3.1-linux
+sha256sum --check apm-0.4.0-linux.tar.gz.sha256
+tar -xzf apm-0.4.0-linux.tar.gz
+cd apm-0.4.0-linux
 make install
 export PATH="$HOME/.local/bin:$PATH"
 apm --version
@@ -63,8 +63,8 @@ apm config init
 текущий HEAD. Например, после успешного CI для релизного коммита:
 
 ```bash
-git tag -a v0.3.1 <проверенный-коммит> -m "apm v0.3.1"
-git push origin refs/tags/v0.3.1
+git tag -a v0.4.0 <проверенный-коммит> -m "apm v0.4.0"
+git push origin refs/tags/v0.4.0
 ```
 
 Существующий v0.3.0 не перемещается. Теги, push и публикация не выполняются
